@@ -1,0 +1,799 @@
+// ---------------------------------------------------------------
+// Water Treatment Service & Field Workforce Management System
+// PostgreSQL + Prisma schema
+// ---------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  EMPLOYEE
+  CUSTOMER
+}
+
+enum EnquiryStatus {
+  NEW
+  CONTACTED
+  FOLLOW_UP
+  CONVERTED
+  CLOSED
+  CANCELLED
+}
+
+enum BookingStatus {
+  REQUESTED
+  CONFIRMED
+  SCHEDULED
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkOrderPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum WorkOrderStatus {
+  ASSIGNED
+  ACCEPTED
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  UNDER_REVIEW
+  CORRECTION_REQUIRED
+  APPROVED
+  CANCELLED
+}
+
+enum WorkAssignmentStatus {
+  ASSIGNED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  TRANSFERRED
+}
+
+enum WorkTransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ServiceReportStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  CORRECTION_REQUIRED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  LEAVE
+}
+
+enum OvertimeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OvertimePaymentStatus {
+  UNPAID
+  PAID
+}
+
+enum LeaveType {
+  CASUAL
+  SICK
+  ANNUAL
+  UNPAID
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MaintenanceFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  YEARLY
+  CUSTOM
+}
+
+enum MaintenanceStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+enum NotificationType {
+  GENERAL
+  BOOKING_CREATED
+  BOOKING_CONFIRMED
+  BOOKING_SCHEDULED
+  TECHNICIAN_ASSIGNED
+  SERVICE_STARTED
+  SERVICE_COMPLETED
+  REPORT_APPROVED
+  REPORT_CORRECTION_REQUESTED
+  MAINTENANCE_REMINDER
+  WORK_ASSIGNED
+  WORK_SCHEDULE_CHANGED
+  WORK_TRANSFER_REQUESTED
+  WORK_TRANSFER_DECISION
+  WORK_APPROVED
+  MANAGER_INSTRUCTION
+  OVERTIME_DECISION
+  LEAVE_DECISION
+  NEW_ENQUIRY
+  NEW_BOOKING
+  REPORT_SUBMITTED
+  ATTENDANCE_EXCEPTION
+}
+
+enum ExportFormat {
+  CSV
+  XLSX
+}
+
+enum ExportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ---------------------------------------------------------------
+// Identity & auth
+// ---------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  firstName    String    @db.VarChar(100)
+  lastName     String    @db.VarChar(100)
+  email        String    @unique @db.VarChar(255)
+  phone        String?   @unique @db.VarChar(20)
+  passwordHash String
+  role         Role      @default(CUSTOMER)
+  profilePhoto String?
+  isActive     Boolean   @default(true)
+  isVerified   Boolean   @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  customer           Customer?
+  employee           Employee?
+  manager            Manager?
+  refreshTokens      RefreshToken[]
+  passwordResets     PasswordResetToken[]
+  deviceTokens       DeviceToken[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  createdWorkOrders  WorkOrder[]          @relation("WorkOrderCreatedBy")
+  assignmentsMade    WorkAssignment[]     @relation("AssignmentCreatedBy")
+  transfersRequested WorkTransfer[]       @relation("TransferRequestedBy")
+  transfersApproved  WorkTransfer[]       @relation("TransferApprovedBy")
+  reviewedReports    ServiceReport[]      @relation("ReportReviewedBy")
+  uploadedPhotos     WorkPhoto[]
+  approvedOvertimes  Overtime[]           @relation("OvertimeApprovedBy")
+  approvedLeaves     Leave[]              @relation("LeaveApprovedBy")
+  exportJobs         ExportJob[]
+
+  @@index([role])
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------
+// CRM: customers, locations, staff
+// ---------------------------------------------------------------
+
+model Customer {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addresses            CustomerAddress[]
+  enquiries            Enquiry[]
+  bookings             Booking[]
+  workOrders           WorkOrder[]
+  maintenanceSchedules MaintenanceSchedule[]
+
+  @@index([createdAt])
+}
+
+model CustomerAddress {
+  id            String   @id @default(uuid()) @db.Uuid
+  customerId    String   @db.Uuid
+  locationName  String   @db.VarChar(150)
+  address       String
+  city          String   @db.VarChar(100)
+  district      String?  @db.VarChar(100)
+  state         String   @db.VarChar(100)
+  pincode       String   @db.VarChar(10)
+  latitude      Float?
+  longitude     Float?
+  contactPerson String?  @db.VarChar(150)
+  contactNumber String?  @db.VarChar(20)
+  instructions  String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  customer             Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bookings             Booking[]
+  workOrders           WorkOrder[]
+  enquiries            Enquiry[]
+  maintenanceSchedules MaintenanceSchedule[]
+
+  @@index([customerId])
+  @@index([city])
+}
+
+model Employee {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @db.Uuid
+  employeeNo  String?   @unique @db.VarChar(30)
+  joiningDate DateTime?
+  designation String?   @db.VarChar(120)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments   WorkAssignment[]
+  transfersFrom WorkTransfer[]   @relation("TransferFromEmployee")
+  transfersTo   WorkTransfer[]   @relation("TransferToEmployee")
+  reports       ServiceReport[]
+  attendances   Attendance[]
+  overtimes     Overtime[]
+  leaves        Leave[]
+
+  @@index([createdAt])
+}
+
+model Manager {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @unique @db.Uuid
+  title     String?   @db.VarChar(120)
+  joinedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enquiries   Enquiry[]    @relation("EnquiryAssignedManager")
+  workOrders  WorkOrder[]  @relation("WorkOrderManager")
+  attendances Attendance[]
+
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------
+// Catalog & CRM: categories, services, enquiries, bookings
+// ---------------------------------------------------------------
+
+model ServiceCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(150)
+  description String?
+  image       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  services Service[]
+
+  @@index([isActive])
+}
+
+model Service {
+  id                          String                @id @default(uuid()) @db.Uuid
+  categoryId                  String                @db.Uuid
+  name                        String                @db.VarChar(200)
+  description                 String?
+  image                       String?
+  estimatedDuration           Int                   @default(60)
+  basePrice                   Decimal               @db.Decimal(10, 2)
+  requiresMaintenance         Boolean               @default(false)
+  defaultMaintenanceFrequency MaintenanceFrequency?
+  isActive                    Boolean               @default(true)
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
+
+  category             ServiceCategory       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  enquiries            Enquiry[]
+  bookings             Booking[]
+  workOrders           WorkOrder[]
+  maintenanceSchedules MaintenanceSchedule[]
+
+  @@index([categoryId])
+  @@index([isActive])
+  @@index([name])
+}
+
+model Enquiry {
+  id                 String        @id @default(uuid()) @db.Uuid
+  enquiryNumber      String        @unique @db.VarChar(30)
+  customerId         String?       @db.Uuid
+  name               String        @db.VarChar(150)
+  phone              String        @db.VarChar(20)
+  email              String?       @db.VarChar(255)
+  serviceId          String?       @db.Uuid
+  message            String?
+  serviceLocationId  String?       @db.Uuid
+  status             EnquiryStatus @default(NEW)
+  assignedManagerId  String?       @db.Uuid
+  convertedBookingId String?       @unique @db.Uuid
+  convertedAt        DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  customer         Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  service          Service?         @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  serviceLocation  CustomerAddress? @relation(fields: [serviceLocationId], references: [id], onDelete: SetNull)
+  assignedManager  Manager?         @relation("EnquiryAssignedManager", fields: [assignedManagerId], references: [id], onDelete: SetNull)
+  convertedBooking Booking?         @relation(fields: [convertedBookingId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([customerId])
+  @@index([assignedManagerId])
+  @@index([createdAt])
+}
+
+model Booking {
+  id                String        @id @default(uuid()) @db.Uuid
+  bookingNumber     String        @unique @db.VarChar(30)
+  customerId        String        @db.Uuid
+  serviceId         String        @db.Uuid
+  serviceLocationId String        @db.Uuid
+  preferredDate     DateTime      @db.Date
+  preferredTime     String        @db.VarChar(8)
+  remarks           String?
+  status            BookingStatus @default(REQUESTED)
+  confirmedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  createdById       String?       @db.Uuid
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  customer             Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  service              Service         @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  serviceLocation      CustomerAddress @relation(fields: [serviceLocationId], references: [id], onDelete: Restrict)
+  workOrder            WorkOrder?
+  convertedFromEnquiry Enquiry?
+
+  @@index([customerId])
+  @@index([serviceId])
+  @@index([status])
+  @@index([preferredDate])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------
+// Execution: work orders, assignments, transfers, reports, photos
+// ---------------------------------------------------------------
+
+model WorkOrder {
+  id                 String            @id @default(uuid()) @db.Uuid
+  workOrderNumber    String            @unique @db.VarChar(30)
+  bookingId          String            @unique @db.Uuid
+  customerId         String            @db.Uuid
+  serviceId          String            @db.Uuid
+  serviceLocationId  String            @db.Uuid
+  managerId          String?           @db.Uuid
+  createdById        String?           @db.Uuid
+  priority           WorkOrderPriority @default(NORMAL)
+  scheduledDate      DateTime?         @db.Date
+  scheduledStartTime String?           @db.VarChar(8)
+  scheduledEndTime   String?           @db.VarChar(8)
+  instructions       String?
+  status             WorkOrderStatus   @default(ASSIGNED)
+  completedAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  booking         Booking              @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  customer        Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  service         Service              @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  serviceLocation CustomerAddress      @relation(fields: [serviceLocationId], references: [id], onDelete: Restrict)
+  manager         Manager?             @relation("WorkOrderManager", fields: [managerId], references: [id], onDelete: SetNull)
+  createdBy       User?                @relation("WorkOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  assignments     WorkAssignment[]
+  transfers       WorkTransfer[]
+  statusLogs      WorkOrderStatusLog[]
+  serviceReport   ServiceReport?
+  photos          WorkPhoto[]
+
+  @@index([customerId])
+  @@index([serviceId])
+  @@index([managerId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@index([createdAt])
+}
+
+model WorkOrderStatusLog {
+  id          String           @id @default(uuid()) @db.Uuid
+  workOrderId String           @db.Uuid
+  fromStatus  WorkOrderStatus?
+  toStatus    WorkOrderStatus
+  changedById String?          @db.Uuid
+  note        String?
+  createdAt   DateTime         @default(now())
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@index([workOrderId, createdAt])
+}
+
+model WorkAssignment {
+  id           String               @id @default(uuid()) @db.Uuid
+  workOrderId  String               @db.Uuid
+  employeeId   String               @db.Uuid
+  assignedById String?              @db.Uuid
+  assignedAt   DateTime             @default(now())
+  acceptedAt   DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  status       WorkAssignmentStatus @default(ASSIGNED)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  workOrder  WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  assignedBy User?     @relation("AssignmentCreatedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([workOrderId, employeeId])
+  @@index([employeeId])
+  @@index([status])
+}
+
+model WorkTransfer {
+  id             String             @id @default(uuid()) @db.Uuid
+  workOrderId    String             @db.Uuid
+  fromEmployeeId String             @db.Uuid
+  toEmployeeId   String             @db.Uuid
+  requestedById  String             @db.Uuid
+  approvedById   String?            @db.Uuid
+  reason         String
+  note           String?
+  status         WorkTransferStatus @default(PENDING)
+  requestedAt    DateTime           @default(now())
+  approvedAt     DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  fromEmployee Employee  @relation("TransferFromEmployee", fields: [fromEmployeeId], references: [id], onDelete: Cascade)
+  toEmployee   Employee  @relation("TransferToEmployee", fields: [toEmployeeId], references: [id], onDelete: Cascade)
+  requestedBy  User      @relation("TransferRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  approvedBy   User?     @relation("TransferApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([workOrderId])
+  @@index([status])
+  @@index([fromEmployeeId])
+  @@index([toEmployeeId])
+}
+
+model ServiceReport {
+  id                String              @id @default(uuid()) @db.Uuid
+  reportNumber      String              @unique @db.VarChar(30)
+  workOrderId       String              @unique @db.Uuid
+  employeeId        String              @db.Uuid
+  workSummary       String              @db.Text
+  workPerformed     String              @db.Text
+  issuesFound       String?
+  materialsUsed     String?
+  recommendations   String?
+  completionRemarks String?
+  submittedAt       DateTime?
+  reviewedAt        DateTime?
+  reviewedById      String?             @db.Uuid
+  status            ServiceReportStatus @default(DRAFT)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  workOrder  WorkOrder   @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  employee   Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewedBy User?       @relation("ReportReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  photos     WorkPhoto[]
+
+  @@index([employeeId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model WorkPhoto {
+  id              String   @id @default(uuid()) @db.Uuid
+  workOrderId     String   @db.Uuid
+  serviceReportId String?  @db.Uuid
+  uploadedById    String?  @db.Uuid
+  imageUrl        String
+  thumbnailUrl    String?
+  caption         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workOrder     WorkOrder      @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  serviceReport ServiceReport? @relation(fields: [serviceReportId], references: [id], onDelete: SetNull)
+  uploadedBy    User?          @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([workOrderId])
+  @@index([serviceReportId])
+}
+
+// ---------------------------------------------------------------
+// Workforce: attendance, overtime, leave
+// ---------------------------------------------------------------
+
+model Attendance {
+  id                String           @id @default(uuid()) @db.Uuid
+  employeeId        String?          @db.Uuid
+  managerId         String?          @db.Uuid
+  date              DateTime         @db.Date
+  checkInTime       DateTime?
+  checkOutTime      DateTime?
+  checkInLatitude   Float?
+  checkInLongitude  Float?
+  checkOutLatitude  Float?
+  checkOutLongitude Float?
+  workingMinutes    Int?
+  status            AttendanceStatus @default(PRESENT)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  employee  Employee?  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  manager   Manager?   @relation(fields: [managerId], references: [id], onDelete: Cascade)
+  overtimes Overtime[]
+
+  @@unique([employeeId, date])
+  @@unique([managerId, date])
+  @@index([date])
+  @@index([status])
+}
+
+model Overtime {
+  id               String                @id @default(uuid()) @db.Uuid
+  employeeId       String                @db.Uuid
+  attendanceId     String?               @db.Uuid
+  date             DateTime              @db.Date
+  startTime        String                @db.VarChar(8)
+  endTime          String                @db.VarChar(8)
+  durationMinutes  Int
+  reason           String?
+  status           OvertimeStatus        @default(PENDING)
+  approvedById     String?               @db.Uuid
+  approvedAt       DateTime?
+  paymentAmount    Decimal?              @db.Decimal(10, 2)
+  paymentStatus    OvertimePaymentStatus @default(UNPAID)
+  paidAt           DateTime?
+  paymentReference String?               @db.VarChar(120)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  employee   Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  attendance Attendance? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  approvedBy User?       @relation("OvertimeApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([employeeId])
+  @@index([date])
+  @@index([status])
+}
+
+model Leave {
+  id           String      @id @default(uuid()) @db.Uuid
+  employeeId   String      @db.Uuid
+  leaveType    LeaveType
+  startDate    DateTime    @db.Date
+  endDate      DateTime    @db.Date
+  reason       String
+  status       LeaveStatus @default(PENDING)
+  approvedById String?     @db.Uuid
+  approvedAt   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  approvedBy User?    @relation("LeaveApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([employeeId])
+  @@index([status])
+  @@index([startDate])
+}
+
+// ---------------------------------------------------------------
+// Maintenance
+// ---------------------------------------------------------------
+
+model MaintenanceSchedule {
+  id                 String               @id @default(uuid()) @db.Uuid
+  customerId         String               @db.Uuid
+  serviceId          String               @db.Uuid
+  serviceLocationId  String               @db.Uuid
+  lastServiceDate    DateTime?            @db.Date
+  nextServiceDate    DateTime             @db.Date
+  frequency          MaintenanceFrequency @default(MONTHLY)
+  customIntervalDays Int?
+  reminderDaysBefore Int                  @default(3)
+  status             MaintenanceStatus    @default(ACTIVE)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  customer        Customer                    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  service         Service                     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceLocation CustomerAddress             @relation(fields: [serviceLocationId], references: [id], onDelete: Restrict)
+  reminderRecords MaintenanceReminderRecord[]
+
+  @@index([customerId])
+  @@index([nextServiceDate])
+  @@index([status])
+  @@index([serviceId])
+}
+
+// Guarantees at-most-once reminders per due date (DB-level dedupe).
+model MaintenanceReminderRecord {
+  id         String   @id @default(uuid()) @db.Uuid
+  scheduleId String   @db.Uuid
+  dueDate    DateTime @db.Date
+  sentAt     DateTime @default(now())
+
+  schedule MaintenanceSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, dueDate])
+  @@index([dueDate])
+}
+
+// ---------------------------------------------------------------
+// Notifications, audit, settings, exports
+// ---------------------------------------------------------------
+
+model DeviceToken {
+  id         String         @id @default(uuid()) @db.Uuid
+  userId     String         @db.Uuid
+  token      String
+  platform   DevicePlatform
+  deviceName String?
+  isActive   Boolean        @default(true)
+  lastUsedAt DateTime       @default(now())
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId, isActive])
+}
+
+model Notification {
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String           @db.Uuid
+  title         String           @db.VarChar(255)
+  message       String           @db.Text
+  type          NotificationType @default(GENERAL)
+  referenceId   String?          @db.Uuid
+  referenceType String?
+  isRead        Boolean          @default(false)
+  readAt        DateTime?
+  createdAt     DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  action    String   @db.VarChar(100)
+  module    String   @db.VarChar(100)
+  entity    String   @db.VarChar(100)
+  entityId  String?  @db.Uuid
+  oldValues Json?
+  newValues Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([module])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+model Setting {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique @db.VarChar(100)
+  value       String   @db.Text
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ExportJob {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @db.Uuid
+  type      String       @db.VarChar(50)
+  format    ExportFormat @default(CSV)
+  filters   Json?
+  status    ExportStatus @default(PENDING)
+  fileUrl   String?
+  error     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([createdAt])
+}
