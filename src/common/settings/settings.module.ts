@@ -1,5 +1,6 @@
 import { Global, Injectable, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AppConfig } from '../../config/configuration';
 import { SETTING_KEYS } from '../constants';
 import { PrismaService } from '../../database/prisma.service';
 
@@ -12,7 +13,16 @@ export class SettingsService implements OnModuleInit {
     private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
-    const attendance = config.get('attendance');
+    const attendance =
+      config.get<AppConfig['attendance']>('attendance') ??
+      ({
+        gpsEnabled: config.get<string>('GPS_ATTENDANCE_ENABLED') === 'true',
+        gpsRadiusMeters: Number(config.get<string>('GPS_ATTENDANCE_RADIUS_METERS') ?? 500),
+        workStartTime: config.get<string>('DEFAULT_WORK_START_TIME') ?? '09:00',
+        workEndTime: config.get<string>('DEFAULT_WORK_END_TIME') ?? '18:00',
+        lateThresholdMinutes: Number(config.get<string>('LATE_THRESHOLD_MINUTES') ?? 15),
+        minHalfDayMinutes: Number(config.get<string>('MIN_HALF_DAY_MINUTES') ?? 240),
+      } satisfies AppConfig['attendance']);
     this.envDefaults.set(SETTING_KEYS.GPS_ATTENDANCE_ENABLED, String(attendance.gpsEnabled));
     this.envDefaults.set(
       SETTING_KEYS.GPS_ATTENDANCE_RADIUS_METERS,

@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { configuration } from './config/configuration';
 import { AuditModule } from './common/audit/audit.module';
@@ -12,6 +13,8 @@ import { UploadsModule } from './common/uploads/uploads.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { DatabaseModule } from './database/database.module';
+import { HousekeepingModule } from './jobs/housekeeping.module';
+import { WorkersModule } from './jobs/workers.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
@@ -41,7 +44,10 @@ import { QueuesModule } from './queues/queues.module';
       load: [configuration],
       cache: true,
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
+    HousekeepingModule,
+    WorkersModule,
     AuditModule,
     SettingsModule,
     SequenceModule,

@@ -45,7 +45,13 @@ export class CloudinaryService {
   private configured = false;
 
   constructor(config: ConfigService) {
-    const cloudinary = config.get<AppConfig['cloudinary']>('cloudinary');
+    const cloudinary =
+      config.get<AppConfig['cloudinary']>('cloudinary') ??
+      ({
+        cloudName: config.get<string>('CLOUDINARY_CLOUD_NAME'),
+        apiKey: config.get<string>('CLOUDINARY_API_KEY'),
+        apiSecret: config.get<string>('CLOUDINARY_API_SECRET'),
+      } satisfies AppConfig['cloudinary']);
     if (cloudinary?.cloudName && cloudinary.apiKey && cloudinary.apiSecret) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { v2 } = require('cloudinary');

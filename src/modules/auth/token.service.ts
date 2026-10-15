@@ -6,6 +6,17 @@ import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { JwtPayload } from '../../common/types/auth.types';
 
+const readNumber = (config: ConfigService, names: string[], fallback: number): number => {
+  for (const name of names) {
+    const value = config.get<number>(name);
+    if (value !== undefined) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return fallback;
+};
+
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
@@ -25,8 +36,8 @@ export class TokenService {
     private readonly jwt: JwtService,
     config: ConfigService,
   ) {
-    this.accessTtl = config.get<number>('jwt.accessTtl') ?? 900;
-    this.refreshTtl = config.get<number>('jwt.refreshTtl') ?? 604800;
+    this.accessTtl = readNumber(config, ['jwt.accessTtl', 'JWT_ACCESS_TTL'], 900);
+    this.refreshTtl = readNumber(config, ['jwt.refreshTtl', 'JWT_REFRESH_TTL'], 604800);
   }
 
   async issuePair(

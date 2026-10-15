@@ -30,8 +30,12 @@ export class WorkPhotosService {
     readonly cloudinary: CloudinaryService,
     config: ConfigService,
   ) {
+    const uploads = config.get<AppConfig['uploads']>('uploads') as
+      | AppConfig['uploads']
+      | undefined;
     this.maxFileSize =
-      config.get<AppConfig['uploads']>('uploads')?.maxFileSize ?? 5 * 1024 * 1024;
+      uploads?.maxFileSize ??
+      Number(config.get<string>('MAX_FILE_SIZE_BYTES') ?? 5 * 1024 * 1024);
   }
 
   async assertWorkOrderAccess(workOrderId: string, actor: AuthUser): Promise<void> {

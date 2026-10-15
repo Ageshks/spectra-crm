@@ -37,7 +37,9 @@ export class QueueService implements OnModuleDestroy {
 
   constructor(config: ConfigService) {
     const connection = connectionOptionsFromUrl(
-      config.get<string>('REDIS_URL') ?? 'redis://localhost:6379',
+      config.get<string>('redisUrl') ??
+        config.get<string>('REDIS_URL') ??
+        'redis://localhost:6379',
     );
     this.notifications = new Queue(QUEUE_NAMES.NOTIFICATIONS, { connection, defaultJobOptions });
     this.maintenance = new Queue(QUEUE_NAMES.MAINTENANCE, { connection, defaultJobOptions });

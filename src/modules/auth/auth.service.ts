@@ -273,6 +273,10 @@ export class AuthService {
   }
 
   get accessTtl(): number {
-    return this.config.get<number>('jwt.accessTtl') ?? 900;
+    return (
+      this.config.get<number>('jwt.accessTtl') ??
+      this.config.get<number>('JWT_ACCESS_TTL') ??
+      900
+    );
   }
 }

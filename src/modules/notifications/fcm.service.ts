@@ -19,7 +19,13 @@ export class FcmService {
     private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
-    const firebase = config.get<AppConfig['firebase']>('firebase');
+    const firebase =
+      config.get<AppConfig['firebase']>('firebase') ??
+      ({
+        projectId: config.get<string>('FIREBASE_PROJECT_ID') || undefined,
+        clientEmail: config.get<string>('FIREBASE_CLIENT_EMAIL') || undefined,
+        privateKey: config.get<string>('FIREBASE_PRIVATE_KEY') || undefined,
+      } satisfies AppConfig['firebase']);
     if (firebase?.projectId && firebase.clientEmail && firebase.privateKey) {
       void this.initialise(firebase);
     } else {

@@ -21,6 +21,19 @@ export class HealthController {
     private readonly redis: RedisService,
   ) {}
 
+  /** Liveness: process is up (used by Docker/K8s). Never touches dependencies. */
+  @Public()
+  @Get('live')
+  @ApiOperation({ summary: 'Liveness probe (process up)' })
+  live(): { status: 'ok'; uptimeSeconds: number; timestamp: string } {
+    return {
+      status: 'ok',
+      uptimeSeconds: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /** Readiness: API + database + Redis (used by load balancers). */
   @Public()
   @Get()
   @ApiOperation({ summary: 'API, database and Redis health status' })
