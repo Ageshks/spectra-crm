@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { AppConfig } from '../config/configuration';
+import { ExportsService } from '../modules/exports/exports.service';
 import { PrismaService } from '../database/prisma.service';
 import { QueueService } from '../queues/queues.module';
 
@@ -20,6 +21,7 @@ export class HousekeepingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queues: QueueService,
+    private readonly exports: ExportsService,
     config: ConfigService,
   ) {
     const app = config.get<AppConfig>('app') as AppConfig | undefined;
@@ -49,6 +51,22 @@ export class HousekeepingService {
     } catch (error) {
       this.logger.error(
         `Token purge failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /** Hourly: purge expired export files and stale jobs. */
+  @Cron('0 * * * *', { name: 'purge-expired-exports', timeZone: 'Asia/Kolkata' })
+  async purgeExpiredExports(): Promise<void> {
+    if (!this.enabled) return;
+    try {
+      const removed = await this.exports.cleanupExpired();
+      if (removed > 0) {
+        this.logger.log(`Purged ${removed} expired export files`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Export cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }

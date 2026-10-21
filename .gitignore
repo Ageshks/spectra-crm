@@ -8,3 +8,4 @@ npm-debug.log*
 .prisma/
 tmp/
 .DS_Store
+storage/

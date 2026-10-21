@@ -22,6 +22,7 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { EnquiriesModule } from './modules/enquiries/enquiries.module';
+import { ExportsModule } from './modules/exports/exports.module';
 import { HealthModule } from './modules/health/health.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
@@ -67,6 +68,7 @@ import { QueuesModule } from './queues/queues.module';
     ServiceCategoriesModule,
     ServicesModule,
     EnquiriesModule,
+    ExportsModule,
     BookingsModule,
     WorkOrdersModule,
     WorkAssignmentsModule,

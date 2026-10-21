@@ -4,6 +4,7 @@ import { Job, Worker } from 'bullmq';
 import { JOB_NAMES, QUEUE_NAMES } from '../common/constants';
 import { AppConfig } from '../config/configuration';
 import { PrismaService } from '../database/prisma.service';
+import { ExportBuilderService } from '../modules/exports/export-builder.service';
 import { FcmService } from '../modules/notifications/fcm.service';
 
 const connectionOptionsFromUrl = (
@@ -32,6 +33,7 @@ export class WorkersService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fcm: FcmService,
+    private readonly exportBuilder: ExportBuilderService,
     config: ConfigService,
   ) {
     const app = config.get<AppConfig>('app') as AppConfig | undefined;
@@ -146,14 +148,7 @@ export class WorkersService implements OnModuleInit, OnModuleDestroy {
     if (job.name !== JOB_NAMES.EXPORT_BUILD) return;
     const jobId = (job.data as { jobId?: string })?.jobId;
     if (!jobId) return;
-    try {
-      await this.prisma.exportJob.update({
-        where: { id: jobId },
-        data: { status: 'FAILED', error: 'Export builder not configured' },
-      });
-    } catch {
-      // Export row may have been deleted; nothing to do.
-    }
+    await this.exportBuilder.build(jobId);
   }
 
   private async handleCleanup(job: Job): Promise<void> {

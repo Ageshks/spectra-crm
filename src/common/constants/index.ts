@@ -22,6 +22,32 @@ export const SETTING_KEYS = {
   MIN_HALF_DAY_MINUTES: 'MIN_HALF_DAY_MINUTES',
 } as const;
 
+/** Resource types that can be exported as CSV/XLSX. */
+export const EXPORT_TYPES = {
+  BOOKINGS: 'bookings',
+  WORK_ORDERS: 'work-orders',
+  ATTENDANCE: 'attendance',
+  OVERTIME: 'overtime',
+  LEAVE: 'leave',
+  SERVICE_REPORTS: 'service-reports',
+  ENQUIRIES: 'enquiries',
+  CUSTOMERS: 'customers',
+} as const;
+
+export type ExportType = (typeof EXPORT_TYPES)[keyof typeof EXPORT_TYPES];
+
+/** Maximum number of rows written into a single export file. */
+export const EXPORT_MAX_ROWS = 50_000;
+
+/** Default number of rows written into a single export file. */
+export const EXPORT_DEFAULT_ROWS = 1_000;
+
+/** How long a generated export file is kept on disk before cleanup (hours). */
+export const EXPORT_RETENTION_HOURS = 24;
+
+/** Storage directory (relative to EXPORT_STORAGE_DIR) for generated files. */
+export const EXPORT_STORAGE_DIRNAME = 'exports';
+
 export const QUEUE_NAMES = {
   NOTIFICATIONS: 'notifications',
   MAINTENANCE: 'maintenance',

@@ -1,6 +1,8 @@
 import { randomBytes } from 'crypto';
 import * as Joi from 'joi';
 
+import { EXPORT_RETENTION_HOURS } from '../common/constants';
+
 const bool = (value: string | undefined, fallback: boolean): boolean =>
   value === undefined ? fallback : value === 'true' || value === '1';
 
@@ -49,6 +51,10 @@ export interface AppConfig {
     lateThresholdMinutes: number;
     minHalfDayMinutes: number;
   };
+  exports: {
+    storageDir: string;
+    retentionHours: number;
+  };
   timezone: string;
 }
 
@@ -81,6 +87,8 @@ const envSchema = Joi.object({
   DEFAULT_WORK_END_TIME: Joi.string().pattern(/^\d{2}:\d{2}$/).default('18:00'),
   LATE_THRESHOLD_MINUTES: Joi.number().integer().min(0).default(15),
   MIN_HALF_DAY_MINUTES: Joi.number().integer().min(0).default(240),
+  EXPORT_STORAGE_DIR: Joi.string().default('./storage'),
+  EXPORT_RETENTION_HOURS: Joi.number().integer().min(1).default(EXPORT_RETENTION_HOURS),
   APP_TIMEZONE: Joi.string().default('Asia/Kolkata'),
 }).unknown();
 
@@ -176,7 +184,11 @@ export const configuration = (): AppConfig => {
       lateThresholdMinutes: int(value.LATE_THRESHOLD_MINUTES, 15),
       minHalfDayMinutes: int(value.MIN_HALF_DAY_MINUTES, 240),
     },
-    timezone: value.APP_TIMEZONE,
+    exports: {
+    storageDir: value.EXPORT_STORAGE_DIR || './storage',
+    retentionHours: int(value.EXPORT_RETENTION_HOURS, EXPORT_RETENTION_HOURS),
+  },
+  timezone: value.APP_TIMEZONE,
   };
 };
 
