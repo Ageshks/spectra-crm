@@ -250,6 +250,65 @@ export class CustomersService {
   // Service history (customer scope — strictly own records)
   // ---------------------------------------------------------------
 
+  // ---------------------------------------------------------------
+  // Delete / deactivate customer (admin)
+  // ---------------------------------------------------------------
+
+  async remove(id: string, actorId: string): Promise<unknown> {
+    const existing = await this.prisma.customer.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            addresses: true,
+            enquiries: true,
+            bookings: true,
+            workOrders: true,
+            maintenanceSchedules: true,
+          },
+        },
+      },
+    });
+    if (!existing) throw new NotFoundException('Customer not found');
+
+    const references =
+      existing._count.enquiries +
+      existing._count.bookings +
+      existing._count.workOrders +
+      existing._count.maintenanceSchedules;
+
+    if (references > 0) {
+      await this.prisma.$transaction([
+        this.prisma.customer.update({ where: { id }, data: { isActive: false } }),
+        this.prisma.user.update({ where: { id: existing.userId }, data: { isActive: false } }),
+      ]);
+      await this.audit.log({
+        action: 'DEACTIVATE_CUSTOMER',
+        module: 'customers',
+        entity: 'Customer',
+        entityId: id,
+        userId: actorId,
+        oldValues: { isActive: existing.isActive },
+        newValues: { isActive: false },
+      });
+      return { id, deleted: false, deactivated: true };
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.customer.delete({ where: { id } }),
+      this.prisma.user.delete({ where: { id: existing.userId } }),
+    ]);
+    await this.audit.log({
+      action: 'DELETE_CUSTOMER',
+      module: 'customers',
+      entity: 'Customer',
+      entityId: id,
+      userId: actorId,
+      oldValues: { isActive: existing.isActive },
+    });
+    return { id, deleted: true };
+  }
+
   async serviceHistory(userId: string, query: { page?: number; limit?: number }): Promise<unknown> {
     const customerId = await this.resolveCustomerId(userId);
     const { skip, take, page, limit } = normalizePagination(query);

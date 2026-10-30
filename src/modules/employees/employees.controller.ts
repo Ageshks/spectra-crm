@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -131,5 +132,14 @@ export class EmployeesController {
   @ResponseMessage('Reports retrieved')
   reports(@Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
     return this.employees.reports(id, query);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOperation({ summary: 'Remove an employee (hard delete when safe, otherwise deactivate)' })
+  @ResponseMessage('Employee removed')
+  remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.employees.remove(id, user.id);
   }
 }

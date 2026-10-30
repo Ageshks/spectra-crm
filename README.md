@@ -145,9 +145,10 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 
 ### Customers — `/api/v1/customers`
 - `GET /api/v1/customers` — ADMIN, MANAGER, SUPER_ADMIN, list customers
-- `POST /api/v1/customers` — ADMIN, SUPER_ADMIN, create customer account
+- `POST /api/v1/customers` — ADMIN, MANAGER, SUPER_ADMIN, create customer account
 - `GET /api/v1/customers/:id` — ADMIN, MANAGER, SUPER_ADMIN, get + locations
 - `PATCH /api/v1/customers/:id` — ADMIN, SUPER_ADMIN, update customer
+- `DELETE /api/v1/customers/:id` — ADMIN, SUPER_ADMIN, delete when safe else deactivate
 - `GET /api/v1/customers/me/profile` — CUSTOMER, own profile
 - `PATCH /api/v1/customers/me/profile` — CUSTOMER, update own profile
 - `GET /api/v1/customers/me/addresses` — CUSTOMER, own service locations
@@ -163,6 +164,7 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 - `GET /api/v1/employees/:id` — ADMIN, MANAGER, SUPER_ADMIN, get employee
 - `PATCH /api/v1/employees/:id` — ADMIN, SUPER_ADMIN, update employee
 - `PATCH /api/v1/employees/:id/status` — ADMIN, SUPER_ADMIN, activate/deactivate
+- `DELETE /api/v1/employees/:id` — ADMIN, SUPER_ADMIN, delete when safe else deactivate
 - `GET /api/v1/employees/:id/work-orders` — ADMIN, MANAGER, SUPER_ADMIN, assigned work
 - `GET /api/v1/employees/:id/attendance` — ADMIN, MANAGER, SUPER_ADMIN, attendance
 - `GET /api/v1/employees/:id/overtime` — ADMIN, MANAGER, SUPER_ADMIN, overtime

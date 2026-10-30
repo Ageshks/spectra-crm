@@ -186,6 +186,66 @@ export class EmployeesService {
   // ---------------------------------------------------------------
   // Employee-scoped operational views (admin / manager)
   // ---------------------------------------------------------------
+  async remove(id: string, actorId: string): Promise<unknown> {
+    const existing = await this.prisma.employee.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            assignments: true,
+            transfersFrom: true,
+            transfersTo: true,
+            reports: true,
+            attendances: true,
+            overtimes: true,
+            leaves: true,
+          },
+        },
+      },
+    });
+    if (!existing) throw new NotFoundException('Employee not found');
+
+    const references =
+      existing._count.assignments +
+      existing._count.transfersFrom +
+      existing._count.transfersTo +
+      existing._count.reports +
+      existing._count.attendances +
+      existing._count.overtimes +
+      existing._count.leaves;
+
+    if (references > 0) {
+      await this.prisma.user.update({
+        where: { id: existing.userId },
+        data: { isActive: false },
+      });
+      await this.audit.log({
+        action: 'DEACTIVATE_EMPLOYEE',
+        module: 'employees',
+        entity: 'Employee',
+        entityId: id,
+        userId: actorId,
+        oldValues: { isActive: true },
+        newValues: { isActive: false },
+      });
+      return { id, deleted: false, deactivated: true };
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.employee.delete({ where: { id } }),
+      this.prisma.user.delete({ where: { id: existing.userId } }),
+    ]);
+    await this.audit.log({
+      action: 'DELETE_EMPLOYEE',
+      module: 'employees',
+      entity: 'Employee',
+      entityId: id,
+      userId: actorId,
+      oldValues: { employeeNo: existing.employeeNo },
+    });
+    return { id, deleted: true };
+  }
+
 
   async assignedWork(employeeId: string, query: { page?: number; limit?: number }): Promise<unknown> {
     const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });

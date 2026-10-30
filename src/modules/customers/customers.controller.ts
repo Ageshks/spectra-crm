@@ -44,7 +44,7 @@ export class CustomersController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Create a customer account' })
   @ResponseMessage('Customer created')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCustomerDto) {
@@ -72,6 +72,15 @@ export class CustomersController {
   ) {
     return this.customers.updateAdmin(id, dto, user.id);
   }
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOperation({ summary: 'Delete a customer when safe, otherwise deactivate' })
+  @ResponseMessage('Customer removed')
+  remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.customers.remove(id, user.id);
+  }
+
 
   // ---------------------------------------------------------------
   // Self service (customer app)
