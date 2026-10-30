@@ -47,7 +47,7 @@ export class EmployeesController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Create an employee account' })
   @ResponseMessage('Employee created')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateEmployeeDto) {

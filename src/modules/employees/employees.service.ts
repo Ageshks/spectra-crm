@@ -27,7 +27,7 @@ const employeeSelect = {
   user: {
     select: {
       id: true, firstName: true, lastName: true, email: true, phone: true,
-      profilePhoto: true, isActive: true, isVerified: true, lastLoginAt: true,
+      profilePhoto: true, isActive: true, isVerified: true, lastLoginAt: true, role: true,
     },
   },
 } satisfies Prisma.EmployeeSelect;

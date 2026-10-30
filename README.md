@@ -127,7 +127,7 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 
 ### Auth — `/api/v1/auth`
 - `POST /api/v1/auth/register` — Public, register CUSTOMER only
-- `POST /api/v1/auth/login` — Public, login all roles, returns user + tokens
+- `POST /api/v1/auth/login` — Public, login all roles, returns `data.user.role`, profile IDs (including `employeeId`), and tokens; clients should route `EMPLOYEE` users to `/api/v1/dashboard/employee`
 - `POST /api/v1/auth/refresh` — Public (refreshToken in body), rotate token pair
 - `POST /api/v1/auth/logout` — Public (refreshToken in body), revoke one token
 - `POST /api/v1/auth/logout-all` — Bearer, revoke all own tokens
@@ -160,7 +160,7 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 ### Employees — `/api/v1/employees`
 - `GET /api/v1/employees/me` — EMPLOYEE, own profile
 - `GET /api/v1/employees` — ADMIN, MANAGER, SUPER_ADMIN, list employees
-- `POST /api/v1/employees` — ADMIN, SUPER_ADMIN, create employee/field-staff
+- `POST /api/v1/employees` — ADMIN, MANAGER, SUPER_ADMIN, create employee/field-staff
 - `GET /api/v1/employees/:id` — ADMIN, MANAGER, SUPER_ADMIN, get employee
 - `PATCH /api/v1/employees/:id` — ADMIN, SUPER_ADMIN, update employee
 - `PATCH /api/v1/employees/:id/status` — ADMIN, SUPER_ADMIN, activate/deactivate
