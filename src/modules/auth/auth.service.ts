@@ -23,7 +23,7 @@ import {
 import { TokenService, TokenPair } from './token.service';
 
 export interface AuthResult {
-  user: SafeUser;
+  user: SafeUser & { customerId?: string; employeeId?: string; managerId?: string };
   tokens: TokenPair;
 }
 
@@ -74,6 +74,11 @@ export class AuthService {
   async login(dto: LoginDto, context: { userAgent?: string; ipAddress?: string }): Promise<AuthResult> {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
+      include: {
+        customer: { select: { id: true } },
+        employee: { select: { id: true } },
+        manager: { select: { id: true } },
+      },
     });
     if (!user) {
       this.logger.warn(JSON.stringify({ event: 'login_failed', reason: 'unknown_email' }));
@@ -128,7 +133,16 @@ export class AuthService {
     });
     this.logger.log(JSON.stringify({ event: 'login', userId: user.id, role: user.role }));
 
-    return { user: { ...pickUser(user), lastLoginAt: new Date() }, tokens };
+    return {
+      user: {
+        ...pickUser(user),
+        customerId: user.customer?.id,
+        employeeId: user.employee?.id,
+        managerId: user.manager?.id,
+        lastLoginAt: new Date(),
+      },
+      tokens,
+    };
   }
 
   async refresh(rawRefreshToken: string, context: { userAgent?: string; ipAddress?: string }): Promise<AuthResult> {
