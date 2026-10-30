@@ -36,6 +36,23 @@ export const attendanceInclude = {
   },
 } satisfies Prisma.AttendanceInclude;
 
+type AttendanceRecord = Prisma.AttendanceGetPayload<{ include: typeof attendanceInclude }>;
+type AttendanceResponse = AttendanceRecord & {
+  employeeName: string | null;
+  employeeNo: string | null;
+};
+
+const attendanceResponse = (record: AttendanceRecord | null): AttendanceResponse | null => {
+  if (!record) return null;
+  const user = record.employee?.user ?? record.manager?.user;
+  const employeeName = user ? `${user.firstName} ${user.lastName}`.trim() : null;
+  return {
+    ...record,
+    employeeName,
+    employeeNo: record.employee?.employeeNo ?? null,
+  };
+};
+
 @Injectable()
 export class AttendanceService {
   constructor(
@@ -107,7 +124,7 @@ export class AttendanceService {
       action: 'ATTENDANCE_CHECK_IN', module: 'attendance',
       entity: 'Attendance', entityId: record.id, userId: actor.id,
     });
-    return record;
+    return attendanceResponse(record);
   }
 
   async checkOut(dto: CheckOutDto, actor: AuthUser): Promise<unknown> {
@@ -148,18 +165,19 @@ export class AttendanceService {
       entity: 'Attendance', entityId: record.id, userId: actor.id,
       newValues: { workingMinutes } as unknown as Prisma.InputJsonValue,
     });
-    return updated;
+    return attendanceResponse(updated);
   }
 
   async today(actor: AuthUser): Promise<unknown> {
     const staff = await this.resolveStaff(actor);
     const today = new Date(todayDateString(new Date()));
-    return this.prisma.attendance.findUnique({
+    const record = await this.prisma.attendance.findUnique({
       where: 'employeeId' in staff
         ? { employeeId_date: { employeeId: staff.employeeId, date: today } }
         : { managerId_date: { managerId: staff.managerId, date: today } },
       include: attendanceInclude,
     });
+    return attendanceResponse(record);
   }
 
   async list(query: ListAttendanceDto, actor: AuthUser) {
@@ -189,7 +207,7 @@ export class AttendanceService {
       }),
       this.prisma.attendance.count({ where }),
     ]);
-    return paginated(items, page, limit, total);
+    return paginated(items.map((record) => attendanceResponse(record)!), page, limit, total);
   }
 
   async getById(id: string, actor: AuthUser): Promise<unknown> {
@@ -201,6 +219,6 @@ export class AttendanceService {
       const staffId = 'employeeId' in staff ? staff.employeeId : staff.managerId;
       if (ownerId !== staffId) throw new ForbiddenException('You cannot access another staff attendance record');
     }
-    return record;
+    return attendanceResponse(record);
   }
 }

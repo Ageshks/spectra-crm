@@ -251,6 +251,8 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 - `GET /api/v1/attendance` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, list (employees own only)
 - `GET /api/v1/attendance/:id` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, get one
 
+Attendance records include `employeeId` as the employee profile UUID, `employeeNo` as the generated roster number (for example `EMP-2026-000001`), `employeeName`, and the nested `employee` profile details.
+
 ### Overtime — `/api/v1/overtime` (INR, records payment only)
 - `POST /api/v1/overtime` — EMPLOYEE, ADMIN, SUPER_ADMIN, request (duration from attendance)
 - `GET /api/v1/overtime` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, list (employees own only)
