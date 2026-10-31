@@ -7,6 +7,15 @@ import argon2 from 'argon2';
  * Controlled by SEED_* env vars; never bakes credentials into the image.
  */
 const prisma = new PrismaClient();
+const DEFAULT_DESIGNATIONS = [
+  'Field Worker',
+  'Field Technician',
+  'Temp Staff',
+  'Office Staff',
+  'Supervisor',
+  'Manager',
+  'Admin',
+];
 
 const first = (names: string[], fallback: string): string => {
   for (const name of names) {
@@ -17,6 +26,22 @@ const first = (names: string[], fallback: string): string => {
 };
 
 async function main(): Promise<void> {
+  for (const name of DEFAULT_DESIGNATIONS) {
+    const isFieldAppEligible = ['Field Technician', 'Temp Staff'].includes(name);
+    const existing = await prisma.designation.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.designation.update({
+        where: { id: existing.id },
+        data: { canUseFieldApp: isFieldAppEligible },
+      });
+    } else {
+      await prisma.designation.create({ data: { name, canUseFieldApp: isFieldAppEligible } });
+    }
+  }
+
   const adminEmail = first(['SEED_ADMIN_EMAIL'], 'admin@example.com').toLowerCase();
   const adminPassword = first(['SEED_ADMIN_PASSWORD'], 'ChangeMe123!');
   const adminFirst = first(['SEED_ADMIN_FIRST_NAME'], 'Site');

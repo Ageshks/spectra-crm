@@ -78,7 +78,13 @@ export class AuthService {
       where: { email: dto.email.toLowerCase() },
       include: {
         customer: { select: { id: true } },
-        employee: { select: { id: true, employeeNo: true } },
+        employee: {
+          select: {
+            id: true,
+            employeeNo: true,
+            designationRecord: { select: { isActive: true, canUseFieldApp: true } },
+          },
+        },
         manager: { select: { id: true } },
       },
     });
@@ -118,6 +124,24 @@ export class AuthService {
         newValues: { reason: 'account_disabled' },
       });
       throw new ForbiddenException('Account is deactivated');
+    }
+
+    if (
+      user.role === Role.EMPLOYEE &&
+      (!user.employee?.designationRecord?.isActive ||
+        !user.employee.designationRecord.canUseFieldApp)
+    ) {
+      await this.audit.log({
+        action: 'LOGIN_FAILED',
+        module: 'auth',
+        entity: 'User',
+        entityId: user.id,
+        userId: user.id,
+        newValues: { reason: 'designation_not_allowed_in_field_app' },
+      });
+      throw new ForbiddenException(
+        'Only employees with Field Technician or Temp Staff designation can use the field app',
+      );
     }
 
     await this.prisma.user.update({
@@ -174,6 +198,11 @@ export class AuthService {
       const reason = error instanceof Error ? error.message : 'unknown';
       if (reason === 'ACCOUNT_DISABLED') {
         throw new ForbiddenException('Account is deactivated');
+      }
+      if (reason === 'FIELD_APP_ACCESS_DENIED') {
+        throw new ForbiddenException(
+          'Only employees with Field Technician or Temp Staff designation can use the field app',
+        );
       }
       throw new UnauthorizedException('Invalid or expired refresh token');
     }

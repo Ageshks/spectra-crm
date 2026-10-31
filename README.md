@@ -128,7 +128,7 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 
 ### Auth — `/api/v1/auth`
 - `POST /api/v1/auth/register` — Public, register CUSTOMER only
-- `POST /api/v1/auth/login` — Public, login all roles, returns `data.user.role`, profile IDs (including `employeeId`), and tokens; clients should route `EMPLOYEE` users to `/api/v1/dashboard/employee`
+- `POST /api/v1/auth/login` — Public, login all roles; `EMPLOYEE` accounts must have an active Field Technician or Temp Staff designation to access the field app. Returns `data.user.role`, profile IDs, and tokens.
 - `POST /api/v1/auth/refresh` — Public (refreshToken in body), rotate token pair
 - `POST /api/v1/auth/logout` — Public (refreshToken in body), revoke one token
 - `POST /api/v1/auth/logout-all` — Bearer, revoke all own tokens
@@ -174,7 +174,7 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 - `GET /api/v1/employees/:id/reports` — ADMIN, MANAGER, SUPER_ADMIN, reports
 
 ### Designations — `/api/v1/designations`
-- `GET /api/v1/designations` — ADMIN, MANAGER, SUPER_ADMIN, list active designations for employee forms
+- `GET /api/v1/designations` — ADMIN, MANAGER, SUPER_ADMIN, list active designations for employee forms (Field Technician and Temp Staff are field-app eligible; defaults also include Field Worker, Office Staff, Supervisor, Manager, Admin)
 - `POST /api/v1/designations` — ADMIN, MANAGER, SUPER_ADMIN, create `{ "name": "Technician" }`
 - `GET /api/v1/designations/:id` — ADMIN, MANAGER, SUPER_ADMIN, get designation and employee count
 - `PATCH /api/v1/designations/:id` — ADMIN, MANAGER, SUPER_ADMIN, rename or activate/deactivate

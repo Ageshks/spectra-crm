@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { User } from '@prisma/client';
+import { Role, User } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { JwtPayload } from '../../common/types/auth.types';
@@ -73,7 +73,17 @@ export class TokenService {
     const tokenHash = sha256(rawRefreshToken);
     const record = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
-      include: { user: true },
+      include: {
+        user: {
+          include: {
+            employee: {
+              select: {
+                designationRecord: { select: { isActive: true, canUseFieldApp: true } },
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!record || record.revokedAt || record.expiresAt.getTime() < Date.now()) {
@@ -81,6 +91,13 @@ export class TokenService {
     }
     if (!record.user.isActive) {
       throw new Error('ACCOUNT_DISABLED');
+    }
+    if (
+      record.user.role === Role.EMPLOYEE &&
+      (!record.user.employee?.designationRecord?.isActive ||
+        !record.user.employee.designationRecord.canUseFieldApp)
+    ) {
+      throw new Error('FIELD_APP_ACCESS_DENIED');
     }
 
     await this.prisma.$transaction([

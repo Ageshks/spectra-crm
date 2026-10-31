@@ -39,7 +39,9 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Login with email and password (all roles)' })
+  @ApiOperation({
+    summary: 'Login with email and password; field app access is limited by employee designation',
+  })
   @ResponseMessage('Login successful')
   login(@Body() dto: LoginDto, @Req() req: Request) {
     return this.auth.login(dto, requestContext(req));
