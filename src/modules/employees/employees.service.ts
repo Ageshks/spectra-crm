@@ -85,6 +85,15 @@ export class EmployeesService {
       if (!selectedDesignation) throw new BadRequestException('Designation does not exist or is inactive');
       designationId = selectedDesignation.id;
       designation = selectedDesignation.name;
+    } else if (designation) {
+      const matchingDesignation = await this.prisma.designation.findFirst({
+        where: { name: { equals: designation, mode: 'insensitive' }, isActive: true },
+        select: { id: true, name: true },
+      });
+      if (matchingDesignation) {
+        designationId = matchingDesignation.id;
+        designation = matchingDesignation.name;
+      }
     }
 
     const employeeNo = await this.sequences.next('EMP');
@@ -180,7 +189,14 @@ export class EmployeesService {
       resolvedDesignationId = selectedDesignation.id;
     } else if (legacyDesignation !== undefined) {
       designation = legacyDesignation.trim();
-      resolvedDesignationId = null;
+      const matchingDesignation = designation
+        ? await this.prisma.designation.findFirst({
+            where: { name: { equals: designation, mode: 'insensitive' }, isActive: true },
+            select: { id: true, name: true },
+          })
+        : null;
+      resolvedDesignationId = matchingDesignation?.id ?? null;
+      if (matchingDesignation) designation = matchingDesignation.name;
     }
 
     const targetDesignation = designation === undefined ? employee.designation : designation;
