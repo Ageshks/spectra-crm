@@ -99,6 +99,7 @@ export class ServicesService {
       where: { id },
       data: {
         ...dto,
+        estimatedDuration: dto.estimatedDuration ?? undefined,
         basePrice: dto.basePrice ?? undefined,
         defaultMaintenanceFrequency:
           dto.defaultMaintenanceFrequency === null

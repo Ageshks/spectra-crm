@@ -38,8 +38,8 @@ export class CreateServiceDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(5)
-  @Max(60 * 24)
+  @Min(1, { message: 'estimatedDuration must be at least 1 minute' })
+  @Max(2147483647, { message: 'estimatedDuration exceeds the supported minutes range' })
   estimatedDuration?: number;
 
   @Type(() => Number)
@@ -84,8 +84,8 @@ export class UpdateServiceDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(5)
-  @Max(60 * 24)
+  @Min(1, { message: 'estimatedDuration must be at least 1 minute' })
+  @Max(2147483647, { message: 'estimatedDuration exceeds the supported minutes range' })
   estimatedDuration?: number;
 
   @IsOptional()

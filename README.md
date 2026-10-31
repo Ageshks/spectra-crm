@@ -188,9 +188,9 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 
 ### Services — `/api/v1/services`
 - `GET /api/v1/services` — Public, browse active services
-- `POST /api/v1/services` — ADMIN, SUPER_ADMIN, create service
+- `POST /api/v1/services` — ADMIN, SUPER_ADMIN, create service (`estimatedDuration` is an integer number of minutes; defaults to 60)
 - `GET /api/v1/services/:id` — Bearer, get service
-- `PATCH /api/v1/services/:id` — ADMIN, SUPER_ADMIN, update service
+- `PATCH /api/v1/services/:id` — ADMIN, SUPER_ADMIN, update service (`estimatedDuration` is an integer number of minutes)
 - `PATCH /api/v1/services/:id/status` — ADMIN, SUPER_ADMIN, activate/deactivate
 - `DELETE /api/v1/services/:id` — ADMIN, SUPER_ADMIN, delete when safe else deactivate
 
