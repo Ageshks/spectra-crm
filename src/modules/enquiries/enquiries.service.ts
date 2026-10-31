@@ -346,7 +346,7 @@ export class EnquiriesService {
       throw new BadRequestException('preferredDate cannot be in the past');
     }
 
-    const managerId = dto.managerId ?? dto.assignedManagerId;
+    const managerId = dto.managerId ?? dto.assignedManagerId ?? enquiry.assignedManagerId ?? undefined;
     const manager = managerId
       ? await this.prisma.manager.findUnique({
           where: { id: managerId },
@@ -445,6 +445,7 @@ export class EnquiriesService {
           customerId,
           serviceId,
           serviceLocationId,
+          ...(manager ? { assignedManagerId: manager.id } : {}),
           convertedBookingId: createdBooking.id,
           convertedAt: new Date(),
         },

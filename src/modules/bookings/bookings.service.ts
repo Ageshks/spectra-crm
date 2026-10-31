@@ -47,7 +47,36 @@ const bookingInclude = {
       user: { select: { id: true, firstName: true, lastName: true, phone: true, email: true } },
     },
   },
-  workOrder: { select: { id: true, workOrderNumber: true, status: true, scheduledDate: true } },
+  workOrder: {
+    select: {
+      id: true,
+      workOrderNumber: true,
+      status: true,
+      scheduledDate: true,
+      scheduledStartTime: true,
+      scheduledEndTime: true,
+      instructions: true,
+      manager: {
+        select: {
+          id: true,
+          title: true,
+          user: { select: { firstName: true, lastName: true } },
+        },
+      },
+      assignments: {
+        select: {
+          employee: {
+            select: {
+              id: true,
+              employeeNo: true,
+              designation: true,
+              user: { select: { firstName: true, lastName: true } },
+            },
+          },
+        },
+      },
+    },
+  },
 } satisfies Prisma.BookingInclude;
 
 @Injectable()
