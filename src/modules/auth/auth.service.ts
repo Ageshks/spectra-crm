@@ -13,6 +13,7 @@ import { AuditService } from '../../common/audit/audit.module';
 import { PrismaService } from '../../database/prisma.service';
 import { hashPassword, verifyPassword } from '../../common/utils/password.util';
 import { pickUser, SafeUser } from '../../common/utils/user.util';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async register(dto: RegisterDto): Promise<SafeUser> {
@@ -76,7 +78,7 @@ export class AuthService {
       where: { email: dto.email.toLowerCase() },
       include: {
         customer: { select: { id: true } },
-        employee: { select: { id: true } },
+        employee: { select: { id: true, employeeNo: true } },
         manager: { select: { id: true } },
       },
     });
@@ -131,6 +133,25 @@ export class AuthService {
       entityId: user.id,
       userId: user.id,
     });
+    if (user.role === Role.EMPLOYEE) {
+      const recipients = await this.prisma.user.findMany({
+        where: { role: { in: [Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN] }, isActive: true },
+        select: { id: true },
+      });
+      const employeeName = `${user.firstName} ${user.lastName}`.trim();
+      const employeeLabel = user.employee?.employeeNo
+        ? `${employeeName} (${user.employee.employeeNo})`
+        : employeeName;
+      await this.notifications.notifyMany(
+        recipients.map((recipient) => ({
+          userId: recipient.id,
+          title: 'Employee signed in',
+          message: `${employeeLabel} signed in to the employee app`,
+          referenceType: 'user',
+          referenceId: user.id,
+        })),
+      );
+    }
     this.logger.log(JSON.stringify({ event: 'login', userId: user.id, role: user.role }));
 
     return {

@@ -184,6 +184,19 @@ export class CustomersService {
 
   async createAddress(userId: string, dto: CreateAddressDto, actorId: string): Promise<unknown> {
     const customerId = await this.resolveCustomerId(userId);
+    return this.createAddressForCustomer(customerId, dto, actorId);
+  }
+
+  async createAddressForCustomer(
+    customerId: string,
+    dto: CreateAddressDto,
+    actorId: string,
+  ): Promise<unknown> {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
     const address = await this.prisma.customerAddress.create({
       data: { ...dto, customerId },
     });

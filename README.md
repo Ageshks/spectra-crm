@@ -4,7 +4,7 @@ NestJS REST API for customer bookings and field service operations. PostgreSQL i
 
 ## Included modules
 
-The current codebase includes authentication and refresh token storage, role guards, customers and service locations, employees and managers, services and categories, enquiries, bookings, work orders and status history, assignments and transfer requests, service reports, work photos, attendance, overtime, leave, maintenance schedules, notifications/device tokens, dashboard summaries, audit records, health checks, Cloudinary integration, Firebase integration, queue producers + workers, and scheduled housekeeping. Database models and PostgreSQL migrations are under `prisma/`.
+The current codebase includes authentication and refresh token storage, role guards, customers and service locations, employees and managers, services and categories, enquiries, bookings, work orders and status history, assignments and transfer requests, service reports, work photos, attendance, overtime, leave, expense claims, maintenance schedules, notifications/device tokens, dashboard summaries, audit records, health checks, Cloudinary integration, Firebase integration, queue producers + workers, and scheduled housekeeping. Database models and PostgreSQL migrations are under `prisma/`.
 
 ## Account and staff workflows
 
@@ -14,6 +14,7 @@ The current codebase includes authentication and refresh token storage, role gua
 - Employees and managers can use `POST /api/v1/attendance/check-in`, `POST /api/v1/attendance/check-out`, and `GET /api/v1/attendance/today`. Attendance is stored against the authenticated staff profile.
 - Employees submit overtime through `POST /api/v1/overtime`; duration is calculated from completed attendance and configured work hours. Managers approve/reject it through `POST /api/v1/overtime/{id}/decision`.
 - Admins record payment for approved overtime through `PATCH /api/v1/overtime/{id}/payment`, with `{ "amount": 1250.00, "paymentReference": "optional-reference" }`. Staff can see the payment amount, status, and date in their own `GET /api/v1/overtime` results. Amounts are recorded in INR; this endpoint records payment, it does not transfer money.
+- Employees submit expense claims through `POST /api/v1/expenses`; managers and admins review them through `POST /api/v1/expenses/{id}/decision`.
 
 ## Production status
 
@@ -155,6 +156,7 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 - `POST /api/v1/customers/me/addresses` — CUSTOMER, add location
 - `PATCH /api/v1/customers/me/addresses/:addressId` — CUSTOMER, update location
 - `DELETE /api/v1/customers/me/addresses/:addressId` — CUSTOMER, soft-delete location
+- `POST /api/v1/service-locations` — ADMIN, MANAGER, SUPER_ADMIN, add a location for a customer (`customerId` plus address fields)
 - `GET /api/v1/customers/me/service-history` — CUSTOMER, bookings/reports/photos/maintenance
 
 ### Employees — `/api/v1/employees`
@@ -266,6 +268,12 @@ Attendance records include `employeeId` as the employee profile UUID, `employeeN
 - `GET /api/v1/leave/:id` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, get one
 - `POST /api/v1/leave/:id/decision` — MANAGER, ADMIN, SUPER_ADMIN, approve/reject
 
+### Expenses — `/api/v1/expenses` (INR)
+- `POST /api/v1/expenses` — EMPLOYEE, submit claim `{ amount, category, expenseDate, description, receiptUrl? }`
+- `GET /api/v1/expenses` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, list (employees own only; filter by `status`, `dateFrom`, `dateTo`)
+- `GET /api/v1/expenses/:id` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, get one (employees own only)
+- `POST /api/v1/expenses/:id/decision` — MANAGER, ADMIN, SUPER_ADMIN, approve/reject `{ decision, note? }`
+
 ### Maintenance — `/api/v1/maintenance`
 - `POST /api/v1/maintenance` — ADMIN, MANAGER, SUPER_ADMIN, CUSTOMER, create schedule
 - `GET /api/v1/maintenance` — Bearer, list (customers own only)
@@ -282,6 +290,8 @@ Attendance records include `employeeId` as the employee profile UUID, `employeeN
 - `GET /api/v1/notifications/devices` — list device tokens
 - `PATCH /api/v1/notifications/devices` — register/refresh token
 - `DELETE /api/v1/notifications/devices/:token` — remove token
+
+New enquiries notify active admins and managers. Employee sign-ins notify active admins and managers. Notifications are stored for in-app retrieval; FCM push is sent when a recipient has a registered device token.
 
 ### Dashboards — `/api/v1/dashboard`
 - `GET /api/v1/dashboard/admin` — ADMIN, SUPER_ADMIN, customers/bookings/orders/maintenance/workforce

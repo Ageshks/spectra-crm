@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -70,6 +71,12 @@ export class CreateAddressDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+}
+
+/** Admin-facing payload for adding a service location to a customer. */
+export class CreateServiceLocationDto extends CreateAddressDto {
+  @IsUUID()
+  customerId!: string;
 }
 
 export class UpdateAddressDto {

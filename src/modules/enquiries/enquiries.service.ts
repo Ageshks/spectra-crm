@@ -73,14 +73,14 @@ export class EnquiriesService {
       newValues: { enquiryNumber, phone: dto.phone },
     });
 
-    // Alert admins about every new enquiry.
-    const admins = await this.prisma.user.findMany({
-      where: { role: { in: [Role.ADMIN, Role.SUPER_ADMIN] }, isActive: true },
+    // Alert active admins and managers about every new enquiry.
+    const recipients = await this.prisma.user.findMany({
+      where: { role: { in: [Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN] }, isActive: true },
       select: { id: true },
     });
     await this.notifications.notifyMany(
-      admins.map((admin) => ({
-        userId: admin.id,
+      recipients.map((recipient) => ({
+        userId: recipient.id,
         title: 'New enquiry',
         message: `Enquiry ${enquiryNumber} received from ${dto.name}`,
         type: NotificationType.NEW_ENQUIRY,
