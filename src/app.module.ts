@@ -20,6 +20,7 @@ import { AttendanceModule } from './modules/attendance/attendance.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { DesignationsModule } from './modules/designations/designations.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { EnquiriesModule } from './modules/enquiries/enquiries.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
@@ -64,6 +65,7 @@ import { QueuesModule } from './queues/queues.module';
     UsersModule,
     CustomersModule,
     DashboardModule,
+    DesignationsModule,
     EmployeesModule,
     ManagersModule,
     ServiceCategoriesModule,

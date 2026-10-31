@@ -311,11 +311,13 @@ model Employee {
   userId      String    @unique @db.Uuid
   employeeNo  String?   @unique @db.VarChar(30)
   joiningDate DateTime?
+  designationId String? @db.Uuid
   designation String?   @db.VarChar(120)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  designationRecord Designation? @relation(fields: [designationId], references: [id], onDelete: SetNull)
   assignments   WorkAssignment[]
   transfersFrom WorkTransfer[]   @relation("TransferFromEmployee")
   transfersTo   WorkTransfer[]   @relation("TransferToEmployee")
@@ -326,6 +328,18 @@ model Employee {
   expenses      Expense[]
 
   @@index([createdAt])
+  @@index([designationId])
+}
+
+model Designation {
+  id        String     @id @default(uuid()) @db.Uuid
+  name      String     @unique @db.VarChar(120)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  employees Employee[]
+
+  @@index([isActive])
 }
 
 model Manager {

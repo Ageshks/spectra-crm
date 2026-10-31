@@ -21,6 +21,7 @@ const employeeSelect = {
   id: true,
   employeeNo: true,
   joiningDate: true,
+  designationId: true,
   designation: true,
   createdAt: true,
   updatedAt: true,
@@ -74,13 +75,26 @@ export class EmployeesService {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException('An account with this email already exists');
 
+    let designationId: string | undefined;
+    let designation = dto.designation?.trim();
+    if (dto.designationId) {
+      const selectedDesignation = await this.prisma.designation.findFirst({
+        where: { id: dto.designationId, isActive: true },
+        select: { id: true, name: true },
+      });
+      if (!selectedDesignation) throw new BadRequestException('Designation does not exist or is inactive');
+      designationId = selectedDesignation.id;
+      designation = selectedDesignation.name;
+    }
+
     const employeeNo = await this.sequences.next('EMP');
     const passwordHash = await hashPassword(dto.password);
     const employee = await this.prisma.employee.create({
       data: {
         employeeNo,
         joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : undefined,
-        designation: dto.designation,
+        designation,
+        designationRecord: designationId ? { connect: { id: designationId } } : undefined,
         user: {
           create: {
             firstName: dto.firstName,
@@ -132,12 +146,27 @@ export class EmployeesService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
 
-    const { isActive, joiningDate, designation, ...userFields } = dto;
+    const { isActive, joiningDate, designation: legacyDesignation, designationId, ...userFields } = dto;
     if (userFields.phone) {
       const clash = await this.prisma.user.findFirst({
         where: { phone: userFields.phone, NOT: { id: employee.userId } },
       });
       if (clash) throw new BadRequestException('Phone number is already in use');
+    }
+
+    let designation: string | undefined;
+    let resolvedDesignationId: string | null | undefined;
+    if (designationId) {
+      const selectedDesignation = await this.prisma.designation.findFirst({
+        where: { id: designationId, isActive: true },
+        select: { id: true, name: true },
+      });
+      if (!selectedDesignation) throw new BadRequestException('Designation does not exist or is inactive');
+      designation = selectedDesignation.name;
+      resolvedDesignationId = selectedDesignation.id;
+    } else if (legacyDesignation !== undefined) {
+      designation = legacyDesignation.trim();
+      resolvedDesignationId = null;
     }
 
     await this.prisma.$transaction([
@@ -149,7 +178,8 @@ export class EmployeesService {
         where: { id },
         data: {
           joiningDate: joiningDate ? new Date(joiningDate) : undefined,
-          designation: designation ?? undefined,
+          designation,
+          designationId: resolvedDesignationId,
         },
       }),
     ]);

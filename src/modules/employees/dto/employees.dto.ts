@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -44,6 +45,10 @@ export class CreateEmployeeDto {
   @IsString()
   @MaxLength(120)
   designation?: string;
+
+  @IsOptional()
+  @IsUUID()
+  designationId?: string;
 }
 
 export class UpdateEmployeeDto {
@@ -69,6 +74,10 @@ export class UpdateEmployeeDto {
   @IsString()
   @MaxLength(120)
   designation?: string;
+
+  @IsOptional()
+  @IsUUID()
+  designationId?: string;
 
   @IsOptional()
   @IsBoolean()

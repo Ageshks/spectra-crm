@@ -172,6 +172,16 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 - `GET /api/v1/employees/:id/overtime` — ADMIN, MANAGER, SUPER_ADMIN, overtime
 - `GET /api/v1/employees/:id/leave` — ADMIN, MANAGER, SUPER_ADMIN, leave
 - `GET /api/v1/employees/:id/reports` — ADMIN, MANAGER, SUPER_ADMIN, reports
+
+### Designations — `/api/v1/designations`
+- `GET /api/v1/designations` — ADMIN, MANAGER, SUPER_ADMIN, list active designations for employee forms
+- `POST /api/v1/designations` — ADMIN, MANAGER, SUPER_ADMIN, create `{ "name": "Technician" }`
+- `GET /api/v1/designations/:id` — ADMIN, MANAGER, SUPER_ADMIN, get designation and employee count
+- `PATCH /api/v1/designations/:id` — ADMIN, MANAGER, SUPER_ADMIN, rename or activate/deactivate
+- `DELETE /api/v1/designations/:id` — ADMIN, SUPER_ADMIN, deactivate designation
+
+When creating an employee, pass the selected `designationId` to `POST /api/v1/employees`. Existing free-text `designation` remains accepted for compatibility.
+
 ### Managers — `/api/v1/managers` (all ADMIN, SUPER_ADMIN)
 - `GET /api/v1/managers` — list managers
 - `POST /api/v1/managers` — create manager/supervisor
