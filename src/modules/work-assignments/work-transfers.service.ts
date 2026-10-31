@@ -65,7 +65,7 @@ export class WorkTransfersService {
       },
     });
     if (!assignment) {
-      throw new ForbiddenException('You are not currently assigned to this work order');
+      throw new NotFoundException('Active work assignment not found for this employee and work order');
     }
 
     if (dto.toEmployeeId === actor.employeeId) {
@@ -73,10 +73,18 @@ export class WorkTransfersService {
     }
     const target = await this.prisma.employee.findUnique({
       where: { id: dto.toEmployeeId },
-      include: { user: { select: { isActive: true } } },
+      include: {
+        user: { select: { id: true, isActive: true } },
+        designationRecord: { select: { id: true, name: true, isActive: true, canUseFieldApp: true } },
+      },
     });
-    if (!target || !target.user.isActive) {
-      throw new BadRequestException('Target employee is unavailable');
+    if (
+      !target ||
+      !target.user.isActive ||
+      !target.designationRecord?.isActive ||
+      !target.designationRecord.canUseFieldApp
+    ) {
+      throw new BadRequestException('Target employee is not an active eligible field technician or temp staff member');
     }
 
     const pending = await this.prisma.workTransfer.findFirst({
@@ -162,9 +170,19 @@ export class WorkTransfersService {
 
     const target = await this.prisma.employee.findUnique({
       where: { id: dto.toEmployeeId },
-      include: { user: { select: { id: true, isActive: true } } },
+      include: {
+        user: { select: { id: true, isActive: true } },
+        designationRecord: { select: { id: true, name: true, isActive: true, canUseFieldApp: true } },
+      },
     });
-    if (!target || !target.user.isActive) throw new BadRequestException('Target employee is unavailable');
+    if (
+      !target ||
+      !target.user.isActive ||
+      !target.designationRecord?.isActive ||
+      !target.designationRecord.canUseFieldApp
+    ) {
+      throw new BadRequestException('Target employee is not an active eligible field technician or temp staff member');
+    }
     const targetAssignment = await this.prisma.workAssignment.findUnique({
       where: { workOrderId_employeeId: { workOrderId: workOrder.id, employeeId: target.id } },
       select: { id: true },
@@ -264,6 +282,18 @@ export class WorkTransfersService {
       });
       await this.notifyDecision(transfer, actor, false, dto.note);
       return rejected;
+    }
+
+    const eligibleTarget = await this.prisma.employee.findFirst({
+      where: {
+        id: transfer.toEmployeeId,
+        user: { isActive: true },
+        designationRecord: { is: { isActive: true, canUseFieldApp: true } },
+      },
+      select: { id: true },
+    });
+    if (!eligibleTarget) {
+      throw new BadRequestException('Transfer target is no longer an active eligible field technician or temp staff member');
     }
 
     // Approve: move the assignment to the target employee atomically.

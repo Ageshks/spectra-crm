@@ -47,7 +47,7 @@ export class WorkAssignmentsController {
   accept(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: AssignmentActionDto,
+    @Body() dto: AssignmentActionDto = {},
   ) {
     return this.assignments.accept(id, user, dto);
   }

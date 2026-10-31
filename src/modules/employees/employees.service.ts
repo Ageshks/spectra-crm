@@ -1,10 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, WorkAssignmentStatus, WorkOrderStatus } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.module';
 import { hashPassword } from '../../common/utils/password.util';
 import {
@@ -15,6 +16,7 @@ import {
 } from '../../common/utils/pagination.util';
 import { SequenceService } from '../../common/sequence/sequence.module';
 import { PrismaService } from '../../database/prisma.service';
+import { AuthUser } from '../../common/types/auth.types';
 import { CreateEmployeeDto, ListEmployeesDto, UpdateEmployeeDto } from './dto/employees.dto';
 
 const employeeSelect = {
@@ -68,6 +70,77 @@ export class EmployeesService {
       this.prisma.employee.count({ where }),
     ]);
     return paginated(items, page, limit, total);
+  }
+
+  async listTransferTargets(actor: AuthUser): Promise<unknown[]> {
+    if (actor.role !== Role.EMPLOYEE || !actor.employeeId) {
+      throw new ForbiddenException('An employee profile is required to list transfer targets');
+    }
+
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        id: { not: actor.employeeId },
+        user: { isActive: true },
+        designationRecord: {
+          is: { isActive: true, canUseFieldApp: true },
+        },
+      },
+      select: {
+        id: true,
+        employeeNo: true,
+        designation: true,
+        designationRecord: { select: { name: true } },
+        user: { select: { firstName: true, lastName: true } },
+      },
+    });
+    if (employees.length === 0) return [];
+
+    const activeAssignments = await this.prisma.workAssignment.groupBy({
+      by: ['employeeId'],
+      where: {
+        employeeId: { in: employees.map((employee) => employee.id) },
+        status: {
+          in: [
+            WorkAssignmentStatus.ASSIGNED,
+            WorkAssignmentStatus.ACCEPTED,
+            WorkAssignmentStatus.IN_PROGRESS,
+          ],
+        },
+        workOrder: {
+          status: {
+            in: [
+              WorkOrderStatus.ASSIGNED,
+              WorkOrderStatus.ACCEPTED,
+              WorkOrderStatus.IN_PROGRESS,
+              WorkOrderStatus.ON_HOLD,
+              WorkOrderStatus.CORRECTION_REQUIRED,
+            ],
+          },
+        },
+      },
+      _count: { _all: true },
+    });
+    const assignmentCounts = new Map(
+      activeAssignments.map((row) => [row.employeeId, row._count._all]),
+    );
+
+    return employees.map((employee) => {
+      const currentAssignmentCount = assignmentCounts.get(employee.id) ?? 0;
+      const firstName = employee.user.firstName;
+      const lastName = employee.user.lastName;
+      return {
+        id: employee.id,
+        employeeId: employee.id,
+        employeeNo: employee.employeeNo,
+        firstName,
+        lastName,
+        fullName: `${firstName} ${lastName}`.trim(),
+        designation: employee.designationRecord?.name ?? employee.designation,
+        isAvailable: currentAssignmentCount === 0,
+        availability: currentAssignmentCount === 0 ? 'AVAILABLE' : 'BUSY',
+        currentAssignmentCount,
+      };
+    });
   }
 
   async create(dto: CreateEmployeeDto, actorId: string): Promise<unknown> {

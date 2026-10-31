@@ -46,6 +46,14 @@ export class EmployeesController {
     return this.employees.list(query);
   }
 
+  @Get('transfer-targets')
+  @Roles(Role.EMPLOYEE)
+  @ApiOperation({ summary: 'List eligible technicians for an employee work-transfer request' })
+  @ResponseMessage('Transfer targets retrieved')
+  transferTargets(@CurrentUser() user: AuthUser) {
+    return this.employees.listTransferTargets(user);
+  }
+
   @Post()
   @Roles(Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Create an employee account' })

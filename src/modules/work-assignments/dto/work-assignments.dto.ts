@@ -48,10 +48,12 @@ export class ListAssignmentsDto extends PaginationDto {
 }
 
 export class CreateTransferDto {
+  @IsUUID()
   @IsString()
   @IsNotEmpty()
   workOrderId!: string;
 
+  @IsUUID()
   @IsString()
   @IsNotEmpty()
   toEmployeeId!: string;

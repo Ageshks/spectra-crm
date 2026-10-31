@@ -135,8 +135,9 @@ export class WorkAssignmentsService {
     const and: Prisma.WorkAssignmentWhereInput[] = [];
     if (query.status) and.push({ status: query.status });
     if (query.workOrderId) and.push({ workOrderId: query.workOrderId });
-    if (actor.role === Role.EMPLOYEE && (query.mine ?? true)) {
-      and.push({ employee: { userId: actor.id } });
+    if (actor.role === Role.EMPLOYEE) {
+      if (!actor.employeeId) throw new ForbiddenException('Employee profile not found');
+      and.push({ employeeId: actor.employeeId });
     }
 
     const where: Prisma.WorkAssignmentWhereInput = {
@@ -175,21 +176,41 @@ export class WorkAssignmentsService {
       include: assignmentInclude,
     });
     if (!assignment) throw new NotFoundException('Assignment not found');
-    if (actor.role === Role.EMPLOYEE && assignment.employee.user.id !== actor.id) {
+    if (actor.role === Role.EMPLOYEE && assignment.employeeId !== actor.employeeId) {
       throw new ForbiddenException('This assignment does not belong to you');
     }
     return assignment;
   }
 
-  async accept(id: string, actor: AuthUser, dto: AssignmentActionDto): Promise<unknown> {
+  async accept(id: string, actor: AuthUser, dto: AssignmentActionDto = {}): Promise<unknown> {
     const assignment = await this.loadOwned(id, actor);
     if (assignment.status !== WorkAssignmentStatus.ASSIGNED) {
       throw new BadRequestException(`Only ASSIGNED work can be accepted (current: ${assignment.status})`);
     }
 
-    const updated = await this.prisma.workAssignment.update({
-      where: { id },
+    const result = await this.prisma.workAssignment.updateMany({
+      where: {
+        id,
+        employeeId: actor.employeeId,
+        status: WorkAssignmentStatus.ASSIGNED,
+      },
       data: { status: WorkAssignmentStatus.ACCEPTED, acceptedAt: new Date() },
+    });
+    if (result.count !== 1) {
+      const current = await this.prisma.workAssignment.findUnique({
+        where: { id },
+        select: { employeeId: true, status: true },
+      });
+      if (!current) throw new NotFoundException('Assignment not found');
+      if (current.employeeId !== actor.employeeId) {
+        throw new ForbiddenException('This assignment does not belong to you');
+      }
+      throw new BadRequestException(
+        `Only ASSIGNED work can be accepted (current: ${current.status})`,
+      );
+    }
+    const updated = await this.prisma.workAssignment.findUniqueOrThrow({
+      where: { id },
       include: assignmentInclude,
     });
 
