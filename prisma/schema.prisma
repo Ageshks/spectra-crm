@@ -651,6 +651,7 @@ model Overtime {
   startTime        String                @db.VarChar(8)
   endTime          String                @db.VarChar(8)
   durationMinutes  Int
+  breakMinutes     Int                   @default(0)
   reason           String?
   status           OvertimeStatus        @default(PENDING)
   approvedById     String?               @db.Uuid

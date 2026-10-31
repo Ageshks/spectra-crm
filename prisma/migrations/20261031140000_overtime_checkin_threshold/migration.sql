@@ -1,0 +1,2 @@
+ALTER TABLE "Overtime"
+ADD COLUMN "breakMinutes" INTEGER NOT NULL DEFAULT 0;

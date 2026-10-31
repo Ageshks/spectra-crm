@@ -1,4 +1,5 @@
-import { IsDateString, IsIn, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { OvertimeStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -9,6 +10,12 @@ export class CreateOvertimeDto {
 
   @IsDateString()
   date!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsIn([0, 60], { message: 'breakMinutes must be 0 or 60' })
+  breakMinutes = 0;
 
   @IsOptional()
   @IsString()

@@ -6,10 +6,8 @@ import {
 } from '@nestjs/common';
 import { NotificationType, OvertimePaymentStatus, OvertimeStatus, Prisma, Role } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.module';
-import { SETTING_KEYS } from '../../common/constants';
-import { SettingsService } from '../../common/settings/settings.module';
 import { AuthUser } from '../../common/types/auth.types';
-import { timeToMinutes, todayDateString } from '../../common/utils/date.util';
+import { todayDateString } from '../../common/utils/date.util';
 import {
   normalizePagination,
   paginated,
@@ -42,7 +40,6 @@ export class OvertimeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly settings: SettingsService,
     private readonly attendance: AttendanceService,
     private readonly notifications: NotificationsService,
   ) {}
@@ -68,17 +65,21 @@ export class OvertimeService {
     if (!record?.checkInTime || !record.checkOutTime) {
       throw new BadRequestException('Overtime requires a completed attendance record for that day');
     }
-    const workEnd = (await this.settings.getString(SETTING_KEYS.WORK_END_TIME)) ?? '18:00';
-    const cutoff = timeToMinutes(workEnd);
-    const outMins = record.checkOutTime.getHours() * 60 + record.checkOutTime.getMinutes();
-    if (outMins <= cutoff) {
-      throw new BadRequestException(`No overtime: check-out was within working hours (ends ${workEnd})`);
+    const elapsedMinutes = Math.floor(
+      (record.checkOutTime.getTime() - record.checkInTime.getTime()) / 60_000,
+    );
+    const requiredMinutes = 8 * 60 + dto.breakMinutes;
+    if (elapsedMinutes <= requiredMinutes) {
+      throw new BadRequestException(
+        `Overtime requires more than 8 working hours${dto.breakMinutes ? ' plus the 60-minute break' : ''} after check-in`,
+      );
     }
-    const durationMinutes = outMins - cutoff;
-    const pad = (n: number): string => String(n).padStart(2, '0');
-    const base = workEnd.length === 5 ? workEnd : workEnd.slice(0, 5);
-    const startTime = `${base}:00`;
-    const endTime = `${pad(Math.floor(outMins / 60) % 24)}:${pad(outMins % 60)}:00`;
+    const durationMinutes = elapsedMinutes - requiredMinutes;
+    const overtimeStart = new Date(record.checkInTime.getTime() + requiredMinutes * 60_000);
+    const formatTime = (value: Date): string => {
+      const pad = (n: number): string => String(n).padStart(2, '0');
+      return `${pad(value.getHours())}:${pad(value.getMinutes())}:00`;
+    };
 
     const dup = await this.prisma.overtime.findFirst({
       where: { employeeId, date: { gte: dayStart, lte: dayEnd }, status: { not: OvertimeStatus.REJECTED } },
@@ -90,9 +91,10 @@ export class OvertimeService {
         employeeId,
         attendanceId: record.id,
         date: record.date,
-        startTime,
-        endTime,
+        startTime: formatTime(overtimeStart),
+        endTime: formatTime(record.checkOutTime),
         durationMinutes,
+        breakMinutes: dto.breakMinutes,
         reason: dto.reason,
         status: OvertimeStatus.PENDING,
       },
@@ -101,7 +103,7 @@ export class OvertimeService {
     await this.audit.log({
       action: 'REQUEST_OVERTIME', module: 'overtime',
       entity: 'Overtime', entityId: created.id, userId: actor.id,
-      newValues: { durationMinutes } as unknown as Prisma.InputJsonValue,
+      newValues: { durationMinutes, breakMinutes: dto.breakMinutes } as Prisma.InputJsonValue,
     });
     return created;
   }
