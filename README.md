@@ -157,7 +157,7 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 - `PATCH /api/v1/customers/me/addresses/:addressId` — CUSTOMER, update location
 - `DELETE /api/v1/customers/me/addresses/:addressId` — CUSTOMER, soft-delete location
 - `POST /api/v1/service-locations` — ADMIN, MANAGER, SUPER_ADMIN, add a location for a customer (`customerId` plus address fields)
-- `GET /api/v1/customers/me/service-history` — CUSTOMER, bookings/reports/photos/maintenance
+- `GET /api/v1/customers/me/service-history` — CUSTOMER, bookings, maintenance, photos, and full report content after approval
 
 ### Employees — `/api/v1/employees`
 - `GET /api/v1/employees/me` — EMPLOYEE, own profile
@@ -205,18 +205,18 @@ When creating an employee, pass the selected `designationId` to `POST /api/v1/em
 - `DELETE /api/v1/services/:id` — ADMIN, SUPER_ADMIN, delete when safe else deactivate
 
 ### Enquiries — `/api/v1/enquiries`
-- `POST /api/v1/enquiries` — Public, submit enquiry
-- `GET /api/v1/enquiries` — ADMIN, MANAGER, SUPER_ADMIN, list
-- `GET /api/v1/enquiries/:id` — ADMIN, MANAGER, SUPER_ADMIN, get one
+- `POST /api/v1/enquiries` — Public or staff, submit enquiry; staff can link an existing customer with `customerId`
+- `GET /api/v1/enquiries` — ADMIN, MANAGER, SUPER_ADMIN, list with linked customer contact and active locations
+- `GET /api/v1/enquiries/:id` — ADMIN, MANAGER, SUPER_ADMIN, get one with linked customer contact and active locations
 - `POST /api/v1/enquiries/:id/assign` — ADMIN, SUPER_ADMIN, assign to manager
 - `PATCH /api/v1/enquiries/:id/status` — ADMIN, MANAGER, SUPER_ADMIN, update status
-- `POST /api/v1/enquiries/:id/convert` — ADMIN, SUPER_ADMIN, convert to booking
+- `POST /api/v1/enquiries/:id/convert` — ADMIN, SUPER_ADMIN, convert to booking (uses linked customer/service; accepts a selected `serviceLocationId`)
 
 ### Bookings — `/api/v1/bookings`
 - `POST /api/v1/bookings` — CUSTOMER, ADMIN, SUPER_ADMIN, create booking
-- `GET /api/v1/bookings` — CUSTOMER, ADMIN, MANAGER, SUPER_ADMIN, list (customers own only)
+- `GET /api/v1/bookings` — CUSTOMER, ADMIN, MANAGER, SUPER_ADMIN, list (customers own only; includes customer contact details and full service location details)
 - `GET /api/v1/bookings/:id` — CUSTOMER, ADMIN, MANAGER, SUPER_ADMIN, get (ownership enforced)
-- `PATCH /api/v1/bookings/:id/status` — CUSTOMER, ADMIN, SUPER_ADMIN, confirm/schedule/cancel
+- `PATCH /api/v1/bookings/:id/status` — CUSTOMER, MANAGER, ADMIN, SUPER_ADMIN, confirm/schedule/cancel
 
 ### Work orders — `/api/v1/work-orders`
 - `POST /api/v1/work-orders` — ADMIN, MANAGER, SUPER_ADMIN, create from confirmed/scheduled booking
@@ -238,14 +238,17 @@ When creating an employee, pass the selected `designationId` to `POST /api/v1/em
 
 ### Work transfers — `/api/v1/work-transfers`
 - `POST /api/v1/work-transfers` — EMPLOYEE, request transfer (reason required)
+- `POST /api/v1/work-transfers/reassign` — MANAGER, ADMIN, SUPER_ADMIN, directly transfer an assignment with `workOrderId`, `fromEmployeeId`, `toEmployeeId`, and `reason`
 - `GET /api/v1/work-transfers` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, list (role scoped)
 - `GET /api/v1/work-transfers/:id` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, get one
 - `PATCH /api/v1/work-transfers/:id/decision` — MANAGER, ADMIN, SUPER_ADMIN, approve/reject
 
+Operational flow: converting an enquiry creates a booking only. After confirming/scheduling it, create a work order, assign the manager, then assign one or more employees. Managers and admins can transfer an active assignment directly with `/api/v1/work-transfers/reassign`.
+
 ### Service reports — `/api/v1/service-reports`
 - `POST /api/v1/service-reports` — EMPLOYEE, create for assigned COMPLETED work
-- `GET /api/v1/service-reports` — Bearer, list (customers approved-only)
-- `GET /api/v1/service-reports/:id` — Bearer, get (ownership enforced)
+- `GET /api/v1/service-reports` — Bearer, list (customers see their approved reports only; suitable for a standalone reports section)
+- `GET /api/v1/service-reports/:id` — Bearer, get (customer ownership enforced; approved reports only)
 - `PATCH /api/v1/service-reports/:id` — EMPLOYEE, edit DRAFT/CORRECTION_REQUIRED
 - `POST /api/v1/service-reports/:id/submit` — EMPLOYEE, submit for review
 - `POST /api/v1/service-reports/:id/approve` — MANAGER, ADMIN, SUPER_ADMIN, approve

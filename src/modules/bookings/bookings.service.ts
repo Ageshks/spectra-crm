@@ -26,7 +26,20 @@ import { CreateBookingDto, ListBookingsDto, UpdateBookingStatusDto } from './dto
 const bookingInclude = {
   service: { select: { id: true, name: true, image: true, basePrice: true, estimatedDuration: true } },
   serviceLocation: {
-    select: { id: true, locationName: true, address: true, city: true, state: true, pincode: true },
+    select: {
+      id: true,
+      locationName: true,
+      address: true,
+      city: true,
+      district: true,
+      state: true,
+      pincode: true,
+      latitude: true,
+      longitude: true,
+      contactPerson: true,
+      contactNumber: true,
+      instructions: true,
+    },
   },
   customer: {
     select: {

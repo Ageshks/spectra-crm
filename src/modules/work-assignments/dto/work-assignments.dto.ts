@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -53,6 +54,27 @@ export class CreateTransferDto {
 
   @IsString()
   @IsNotEmpty()
+  toEmployeeId!: string;
+
+  @IsString()
+  @MinLength(5, { message: 'reason must be at least 5 characters' })
+  @MaxLength(1000)
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+}
+
+export class ManagerReassignDto {
+  @IsUUID()
+  workOrderId!: string;
+
+  @IsUUID()
+  fromEmployeeId!: string;
+
+  @IsUUID()
   toEmployeeId!: string;
 
   @IsString()

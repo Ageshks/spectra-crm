@@ -1,8 +1,12 @@
-import { IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 import { EnquiryStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateEnquiryDto {
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)

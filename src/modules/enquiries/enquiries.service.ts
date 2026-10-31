@@ -22,6 +22,50 @@ import {
   UpdateEnquiryStatusDto,
 } from './dto/enquiries.dto';
 
+const enquiryInclude = {
+  service: { select: { id: true, name: true } },
+  serviceLocation: {
+    select: {
+      id: true,
+      locationName: true,
+      address: true,
+      city: true,
+      district: true,
+      state: true,
+      pincode: true,
+      contactPerson: true,
+      contactNumber: true,
+      instructions: true,
+      isActive: true,
+    },
+  },
+  assignedManager: {
+    select: { id: true, user: { select: { firstName: true, lastName: true } } },
+  },
+  customer: {
+    select: {
+      id: true,
+      user: { select: { firstName: true, lastName: true, phone: true, email: true } },
+      addresses: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          locationName: true,
+          address: true,
+          city: true,
+          district: true,
+          state: true,
+          pincode: true,
+          contactPerson: true,
+          contactNumber: true,
+          instructions: true,
+        },
+        orderBy: { createdAt: 'desc' as const },
+      },
+    },
+  },
+} satisfies Prisma.EnquiryInclude;
+
 @Injectable()
 export class EnquiriesService {
   constructor(
@@ -35,6 +79,14 @@ export class EnquiriesService {
     dto: CreateEnquiryDto,
     actor: { id: string; role: Role; customerId?: string },
   ): Promise<unknown> {
+    let customerId = actor.role === Role.CUSTOMER ? actor.customerId : dto.customerId;
+    if (actor.role === Role.CUSTOMER && dto.customerId && dto.customerId !== actor.customerId) {
+      throw new ForbiddenException('You cannot create an enquiry for another customer');
+    }
+    if (customerId) {
+      const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+      if (!customer) throw new BadRequestException('Customer does not exist');
+    }
     if (dto.serviceId) {
       const service = await this.prisma.service.findUnique({ where: { id: dto.serviceId } });
       if (!service) throw new BadRequestException('Service does not exist');
@@ -47,13 +99,17 @@ export class EnquiriesService {
       if (actor.customerId && address.customerId !== actor.customerId) {
         throw new ForbiddenException('Service location does not belong to you');
       }
+      if (customerId && address.customerId !== customerId) {
+        throw new BadRequestException('Service location does not belong to the selected customer');
+      }
+      customerId ??= address.customerId;
     }
 
     const enquiryNumber = await this.sequences.next('ENQ');
     const enquiry = await this.prisma.enquiry.create({
       data: {
         enquiryNumber,
-        customerId: actor.role === Role.CUSTOMER ? actor.customerId : undefined,
+        customerId,
         name: dto.name,
         phone: dto.phone,
         email: dto.email,
@@ -120,13 +176,7 @@ export class EnquiriesService {
         skip,
         take,
         orderBy: safeOrderBy(sortBy, sortOrder, ['createdAt', 'status']),
-        include: {
-          service: { select: { id: true, name: true } },
-          assignedManager: {
-            select: { id: true, user: { select: { firstName: true, lastName: true } } },
-          },
-          customer: { select: { id: true, user: { select: { firstName: true, lastName: true } } } },
-        },
+        include: enquiryInclude,
       }),
       this.prisma.enquiry.count({ where }),
     ]);
@@ -136,13 +186,7 @@ export class EnquiriesService {
   async getById(id: string): Promise<unknown> {
     const enquiry = await this.prisma.enquiry.findUnique({
       where: { id },
-      include: {
-        service: { select: { id: true, name: true } },
-        assignedManager: {
-          select: { id: true, user: { select: { firstName: true, lastName: true } } },
-        },
-        customer: { select: { id: true, user: { select: { firstName: true, lastName: true } } } },
-      },
+      include: enquiryInclude,
     });
     if (!enquiry) throw new NotFoundException('Enquiry not found');
     return enquiry;

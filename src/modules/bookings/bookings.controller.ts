@@ -40,7 +40,7 @@ export class BookingsController {
   }
 
   @Patch(':id/status')
-  @Roles(Role.CUSTOMER, Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.CUSTOMER, Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Confirm / schedule / cancel a booking' })
   @ResponseMessage('Booking status updated')

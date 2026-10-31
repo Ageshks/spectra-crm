@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { NotificationType, Prisma, Role, WorkAssignmentStatus, WorkTransferStatus } from '@prisma/client';
+import { NotificationType, Prisma, Role, WorkAssignmentStatus, WorkOrderStatus, WorkTransferStatus } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.module';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
@@ -15,7 +15,12 @@ import {
 } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthUser } from '../../common/types/auth.types';
-import { CreateTransferDto, ListTransfersDto, TransferDecisionDto } from './dto/work-assignments.dto';
+import {
+  CreateTransferDto,
+  ListTransfersDto,
+  ManagerReassignDto,
+  TransferDecisionDto,
+} from './dto/work-assignments.dto';
 
 const transferInclude = {
   fromEmployee: {
@@ -127,6 +132,107 @@ export class WorkTransfersService {
       })),
     );
 
+    return transfer;
+  }
+
+  async reassign(dto: ManagerReassignDto, actor: AuthUser): Promise<unknown> {
+    if (dto.fromEmployeeId === dto.toEmployeeId) {
+      throw new BadRequestException('The target employee must be different from the current employee');
+    }
+    const workOrder = await this.prisma.workOrder.findUnique({
+      where: { id: dto.workOrderId },
+      select: { id: true, workOrderNumber: true, status: true },
+    });
+    if (!workOrder) throw new NotFoundException('Work order not found');
+    if (
+      workOrder.status === WorkOrderStatus.COMPLETED ||
+      workOrder.status === WorkOrderStatus.APPROVED ||
+      workOrder.status === WorkOrderStatus.CANCELLED
+    ) {
+      throw new BadRequestException(`Cannot transfer a ${workOrder.status} work order`);
+    }
+    const assignment = await this.prisma.workAssignment.findFirst({
+      where: {
+        workOrderId: workOrder.id,
+        employeeId: dto.fromEmployeeId,
+        status: { in: [WorkAssignmentStatus.ASSIGNED, WorkAssignmentStatus.ACCEPTED, WorkAssignmentStatus.IN_PROGRESS] },
+      },
+    });
+    if (!assignment) throw new BadRequestException('Current employee is not actively assigned to this work order');
+
+    const target = await this.prisma.employee.findUnique({
+      where: { id: dto.toEmployeeId },
+      include: { user: { select: { id: true, isActive: true } } },
+    });
+    if (!target || !target.user.isActive) throw new BadRequestException('Target employee is unavailable');
+    const targetAssignment = await this.prisma.workAssignment.findUnique({
+      where: { workOrderId_employeeId: { workOrderId: workOrder.id, employeeId: target.id } },
+      select: { id: true },
+    });
+    if (targetAssignment) throw new BadRequestException('Target employee has already been assigned to this work order');
+
+    const oldEmployee = await this.prisma.employee.findUnique({
+      where: { id: dto.fromEmployeeId },
+      include: { user: { select: { id: true } } },
+    });
+    if (!oldEmployee) throw new NotFoundException('Current employee not found');
+
+    const transfer = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.workTransfer.create({
+        data: {
+          workOrderId: workOrder.id,
+          fromEmployeeId: oldEmployee.id,
+          toEmployeeId: target.id,
+          requestedById: actor.id,
+          approvedById: actor.id,
+          reason: dto.reason,
+          note: dto.note,
+          status: WorkTransferStatus.APPROVED,
+          approvedAt: new Date(),
+        },
+      });
+      await tx.workAssignment.update({
+        where: { id: assignment.id },
+        data: {
+          employeeId: target.id,
+          status: WorkAssignmentStatus.ASSIGNED,
+          acceptedAt: null,
+          startedAt: null,
+          completedAt: null,
+          assignedAt: new Date(),
+          assignedById: actor.id,
+        },
+      });
+      return tx.workTransfer.findUniqueOrThrow({ where: { id: created.id }, include: transferInclude });
+    });
+
+    await this.audit.log({
+      action: 'MANAGER_REASSIGN_WORK',
+      module: 'work-assignments',
+      entity: 'WorkTransfer',
+      entityId: transfer.id,
+      userId: actor.id,
+      oldValues: { employeeId: oldEmployee.id },
+      newValues: { employeeId: target.id, workOrderId: workOrder.id, reason: dto.reason },
+    });
+    await this.notifications.notifyMany([
+      {
+        userId: oldEmployee.user.id,
+        title: 'Work reassigned',
+        message: `You have been removed from ${workOrder.workOrderNumber}`,
+        type: NotificationType.WORK_TRANSFER_DECISION,
+        referenceType: 'workOrder',
+        referenceId: workOrder.id,
+      },
+      {
+        userId: target.user.id,
+        title: 'Work assigned to you',
+        message: `You have been assigned to ${workOrder.workOrderNumber}`,
+        type: NotificationType.WORK_TRANSFER_DECISION,
+        referenceType: 'workOrder',
+        referenceId: workOrder.id,
+      },
+    ]);
     return transfer;
   }
 

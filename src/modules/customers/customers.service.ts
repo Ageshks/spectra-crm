@@ -369,8 +369,18 @@ export class CustomersService {
                   submittedAt: true,
                   reviewedAt: true,
                   workSummary: true,
+                  workPerformed: true,
+                  issuesFound: true,
+                  materialsUsed: true,
                   recommendations: true,
                   completionRemarks: true,
+                  employee: {
+                    select: {
+                      employeeNo: true,
+                      user: { select: { firstName: true, lastName: true, profilePhoto: true } },
+                    },
+                  },
+                  reviewedBy: { select: { firstName: true, lastName: true } },
                   photos: { select: { id: true, imageUrl: true, thumbnailUrl: true, caption: true } },
                 },
               },

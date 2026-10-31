@@ -13,6 +13,7 @@ import {
   CreateTransferDto,
   ListAssignmentsDto,
   ListTransfersDto,
+  ManagerReassignDto,
   TransferDecisionDto,
 } from './dto/work-assignments.dto';
 
@@ -103,6 +104,14 @@ export class WorkTransfersController {
   @ResponseMessage('Transfer requested')
   request(@CurrentUser() user: AuthUser, @Body() dto: CreateTransferDto) {
     return this.transfers.request(dto, user);
+  }
+
+  @Post('reassign')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Transfer an assignment directly to another employee' })
+  @ResponseMessage('Work transferred to another employee')
+  reassign(@CurrentUser() user: AuthUser, @Body() dto: ManagerReassignDto) {
+    return this.transfers.reassign(dto, user);
   }
 
   @Get()
