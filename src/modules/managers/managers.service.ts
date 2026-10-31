@@ -39,16 +39,21 @@ export class ManagersService {
 
   async list(query: ListManagersDto): Promise<PaginatedResult<unknown>> {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
-    const where: Prisma.ManagerWhereInput = search
-      ? {
-          OR: [
-            { user: { firstName: { contains: search, mode: 'insensitive' } } },
-            { user: { lastName: { contains: search, mode: 'insensitive' } } },
-            { user: { email: { contains: search, mode: 'insensitive' } } },
-            { user: { phone: { contains: search } } },
-          ],
-        }
-      : {};
+    const where: Prisma.ManagerWhereInput = {
+      user: {
+        role: Role.MANAGER,
+        ...(search
+          ? {
+              OR: [
+                { firstName: { contains: search, mode: 'insensitive' } },
+                { lastName: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } },
+                { phone: { contains: search } },
+              ],
+            }
+          : {}),
+      },
+    };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.manager.findMany({
         where,

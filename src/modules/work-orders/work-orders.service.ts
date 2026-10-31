@@ -126,9 +126,11 @@ export class WorkOrdersService {
     if (dto.managerId) {
       const manager = await this.prisma.manager.findUnique({
         where: { id: dto.managerId },
-        include: { user: { select: { isActive: true } } },
+        include: { user: { select: { isActive: true, role: true } } },
       });
-      if (!manager || !manager.user.isActive) throw new BadRequestException('Manager does not exist or is inactive');
+      if (!manager || !manager.user.isActive || manager.user.role !== Role.MANAGER) {
+        throw new BadRequestException('Manager does not exist or is inactive');
+      }
     }
 
     const employeeIds = [...new Set(dto.employeeIds ?? [])];
@@ -374,8 +376,13 @@ export class WorkOrdersService {
   async setManager(id: string, dto: SetManagerDto, actor: AuthUser): Promise<unknown> {
     const workOrder = await this.prisma.workOrder.findUnique({ where: { id } });
     if (!workOrder) throw new NotFoundException('Work order not found');
-    const manager = await this.prisma.manager.findUnique({ where: { id: dto.managerId } });
-    if (!manager) throw new BadRequestException('Manager does not exist');
+    const manager = await this.prisma.manager.findUnique({
+      where: { id: dto.managerId },
+      include: { user: { select: { isActive: true, role: true } } },
+    });
+    if (!manager || !manager.user.isActive || manager.user.role !== Role.MANAGER) {
+      throw new BadRequestException('Manager does not exist or is inactive');
+    }
 
     const updated = await this.prisma.workOrder.update({
       where: { id },

@@ -350,10 +350,10 @@ export class EnquiriesService {
     const manager = managerId
       ? await this.prisma.manager.findUnique({
           where: { id: managerId },
-          include: { user: { select: { id: true, isActive: true } } },
+          include: { user: { select: { id: true, isActive: true, role: true } } },
         })
       : null;
-    if (managerId && (!manager || !manager.user.isActive)) {
+    if (managerId && (!manager || !manager.user.isActive || manager.user.role !== Role.MANAGER)) {
       throw new BadRequestException('Manager does not exist or is inactive');
     }
 

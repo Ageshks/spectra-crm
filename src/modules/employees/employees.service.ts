@@ -89,25 +89,39 @@ export class EmployeesService {
 
     const employeeNo = await this.sequences.next('EMP');
     const passwordHash = await hashPassword(dto.password);
-    const employee = await this.prisma.employee.create({
-      data: {
-        employeeNo,
-        joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : undefined,
-        designation,
-        designationRecord: designationId ? { connect: { id: designationId } } : undefined,
-        user: {
-          create: {
-            firstName: dto.firstName,
-            lastName: dto.lastName,
-            email,
-            phone: dto.phone,
-            passwordHash,
-            role: Role.EMPLOYEE,
-            isVerified: true,
-          },
+    const managerDesignation = this.isManagerDesignation(designation);
+    const employee = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email,
+          phone: dto.phone,
+          passwordHash,
+          role: managerDesignation ? Role.MANAGER : Role.EMPLOYEE,
+          isVerified: true,
         },
-      },
-      select: employeeSelect,
+      });
+      const createdEmployee = await tx.employee.create({
+        data: {
+          employeeNo,
+          joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : undefined,
+          designation,
+          designationRecord: designationId ? { connect: { id: designationId } } : undefined,
+          user: { connect: { id: user.id } },
+        },
+        select: employeeSelect,
+      });
+      if (managerDesignation) {
+        await tx.manager.create({
+          data: {
+            userId: user.id,
+            title: designation,
+            joinedAt: dto.joiningDate ? new Date(dto.joiningDate) : new Date(),
+          },
+        });
+      }
+      return createdEmployee;
     });
 
     await this.audit.log({
@@ -169,20 +183,43 @@ export class EmployeesService {
       resolvedDesignationId = null;
     }
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    const targetDesignation = designation === undefined ? employee.designation : designation;
+    const managerDesignation = this.isManagerDesignation(targetDesignation);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id: employee.userId },
-        data: { ...userFields, isActive: isActive ?? undefined },
-      }),
-      this.prisma.employee.update({
+        data: {
+          ...userFields,
+          isActive: isActive ?? undefined,
+          ...(managerDesignation
+            ? { role: Role.MANAGER }
+            : employee.user.role === Role.MANAGER
+              ? { role: Role.EMPLOYEE }
+              : {}),
+        },
+      });
+      await tx.employee.update({
         where: { id },
         data: {
           joiningDate: joiningDate ? new Date(joiningDate) : undefined,
           designation,
           designationId: resolvedDesignationId,
         },
-      }),
-    ]);
+      });
+      if (managerDesignation) {
+        await tx.manager.upsert({
+          where: { userId: employee.userId },
+          create: {
+            userId: employee.userId,
+            title: targetDesignation,
+            joinedAt: joiningDate ? new Date(joiningDate) : employee.joiningDate ?? new Date(),
+          },
+          update: { title: targetDesignation },
+        });
+      }
+      // Keep an existing manager profile for historical work orders and attendance.
+      // Its user role is changed above, so it no longer appears in the active manager list.
+    });
 
     await this.audit.log({
       action: 'UPDATE_EMPLOYEE',
@@ -211,6 +248,10 @@ export class EmployeesService {
       newValues: { isActive },
     });
     return this.getById(id);
+  }
+
+  private isManagerDesignation(value: string | null | undefined): boolean {
+    return value?.trim().toLocaleLowerCase() === 'manager';
   }
 
   // ---------------------------------------------------------------
