@@ -128,12 +128,12 @@ export class WorkPhotosService {
   }
 
   async remove(id: string, actor: AuthUser): Promise<{ removed: boolean }> {
+    if (actor.role !== Role.ADMIN && actor.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only admins can delete work photos');
+    }
     const photo = await this.prisma.workPhoto.findUnique({ where: { id } });
     if (!photo) throw new NotFoundException('Photo not found');
     await this.assertAccess(photo.workOrderId, actor);
-    if (actor.role === Role.EMPLOYEE && photo.uploadedById !== actor.id) {
-      throw new ForbiddenException('You can only delete photos you uploaded');
-    }
     await this.prisma.workPhoto.delete({ where: { id } });
     await this.audit.log({
       action: 'DELETE_WORK_PHOTO',

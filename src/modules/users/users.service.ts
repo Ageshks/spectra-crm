@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -8,8 +9,9 @@ import { Prisma, Role, User } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.module';
 import { normalizePagination, paginated, PaginatedResult, safeOrderBy } from '../../common/utils/pagination.util';
 import { pickUser, SafeUser } from '../../common/utils/user.util';
+import { hashPassword } from '../../common/utils/password.util';
 import { PrismaService } from '../../database/prisma.service';
-import { ListUsersDto, UpdateMeDto, UpdateUserStatusDto } from './dto/users.dto';
+import { CreateAdminUserDto, ListUsersDto, UpdateMeDto, UpdateUserStatusDto } from './dto/users.dto';
 
 @Injectable()
 export class UsersService {
@@ -17,6 +19,40 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  async createAdmin(dto: CreateAdminUserDto, actor: { id: string; role: Role }): Promise<SafeUser> {
+    if (actor.role !== Role.ADMIN && actor.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only admins can create admin accounts');
+    }
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new ConflictException('An account with this email already exists');
+    if (dto.phone) {
+      const phoneExists = await this.prisma.user.findFirst({ where: { phone: dto.phone } });
+      if (phoneExists) throw new ConflictException('An account with this phone number already exists');
+    }
+
+    const user = await this.prisma.user.create({
+      data: {
+        firstName: dto.firstName.trim(),
+        lastName: dto.lastName.trim(),
+        email,
+        phone: dto.phone,
+        passwordHash: await hashPassword(dto.password),
+        role: Role.ADMIN,
+        isVerified: true,
+      },
+    });
+    await this.audit.log({
+      action: 'CREATE_ADMIN_USER',
+      module: 'users',
+      entity: 'User',
+      entityId: user.id,
+      userId: actor.id,
+      newValues: { email, role: Role.ADMIN },
+    });
+    return pickUser(user);
+  }
 
   async list(query: ListUsersDto, actor: { id: string; role: Role }): Promise<PaginatedResult<SafeUser>> {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);

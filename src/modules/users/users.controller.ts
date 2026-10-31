@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthUser } from '../../common/types/auth.types';
-import { ListUsersDto, UpdateMeDto, UpdateUserStatusDto } from './dto/users.dto';
+import { CreateAdminUserDto, ListUsersDto, UpdateMeDto, UpdateUserStatusDto } from './dto/users.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('users')
@@ -26,6 +26,14 @@ export class UsersController {
   @ResponseMessage('Profile updated')
   updateMe(@CurrentUser() user: AuthUser, @Body() dto: UpdateMeDto) {
     return this.users.updateMe(user.id, dto);
+  }
+
+  @Post('admins')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Create an admin account (admin-only; role is assigned by the server)' })
+  @ResponseMessage('Admin account created')
+  createAdmin(@CurrentUser() user: AuthUser, @Body() dto: CreateAdminUserDto) {
+    return this.users.createAdmin(dto, { id: user.id, role: user.role });
   }
 
   @Get()

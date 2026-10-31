@@ -51,6 +51,7 @@ export class ExportsController {
   }
 
   @Delete(':id')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Delete an export job and its file' })
   remove(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.service.remove(id, actor);

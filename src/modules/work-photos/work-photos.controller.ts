@@ -2,8 +2,10 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Uploa
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
+import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthUser } from '../../common/types/auth.types';
 import { ListWorkPhotosDto, UploadWorkPhotoDto } from './dto/work-photos.dto';
 import { WorkPhotosService } from './work-photos.service';
@@ -32,6 +34,7 @@ export class WorkPhotosController {
   }
 
   @Delete(':id')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Delete a work photo' })
   @ResponseMessage('Photo deleted')

@@ -53,7 +53,7 @@ export class DesignationsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDesignationDto,
   ) {
-    return this.designations.update(id, dto, user.id);
+    return this.designations.update(id, dto, user.id, user.role);
   }
 
   @Delete(':id')

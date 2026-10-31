@@ -126,11 +126,11 @@ export class ExportsService {
   }
 
   async remove(id: string, actor: AuthUser): Promise<void> {
+    if (!this.isAdmin(actor)) {
+      throw new ForbiddenException('Only admins can delete export jobs');
+    }
     const job = await this.prisma.exportJob.findUnique({ where: { id } });
     if (!job) throw new NotFoundException('Export job not found');
-    if (job.userId !== actor.id && !this.isAdmin(actor)) {
-      throw new ForbiddenException('Access denied');
-    }
     if (job.fileUrl) await this.storage.remove(job.fileUrl);
     await this.prisma.exportJob.delete({ where: { id } });
     await this.audit.log({

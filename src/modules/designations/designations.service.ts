@@ -1,5 +1,5 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, Role } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.module';
 import {
   normalizePagination,
@@ -69,7 +69,10 @@ export class DesignationsService {
     return designation;
   }
 
-  async update(id: string, dto: UpdateDesignationDto, actorId: string): Promise<unknown> {
+  async update(id: string, dto: UpdateDesignationDto, actorId: string, actorRole: Role): Promise<unknown> {
+    if (actorRole === Role.MANAGER && dto.isActive === false) {
+      throw new ForbiddenException('Only admins can deactivate designations');
+    }
     const existing = await this.prisma.designation.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Designation not found');
     const name = dto.name?.trim();
