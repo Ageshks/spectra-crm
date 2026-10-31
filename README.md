@@ -210,7 +210,7 @@ When creating an employee, pass the selected `designationId` to `POST /api/v1/em
 - `GET /api/v1/enquiries/:id` — ADMIN, MANAGER, SUPER_ADMIN, get one with linked customer contact and active locations
 - `POST /api/v1/enquiries/:id/assign` — ADMIN, SUPER_ADMIN, assign to manager
 - `PATCH /api/v1/enquiries/:id/status` — ADMIN, MANAGER, SUPER_ADMIN, update status
-- `POST /api/v1/enquiries/:id/convert` — ADMIN, SUPER_ADMIN, convert to booking (uses linked customer/service; accepts a selected `serviceLocationId`)
+- `POST /api/v1/enquiries/:id/convert` — ADMIN, SUPER_ADMIN, convert to booking (uses linked customer/service; accepts `serviceLocationId`, date/time, `priority`, `managerId`, `employeeIds`, and service notes; manager/employee selections create an assigned work order atomically)
 
 ### Bookings — `/api/v1/bookings`
 - `POST /api/v1/bookings` — CUSTOMER, ADMIN, SUPER_ADMIN, create booking
@@ -219,7 +219,7 @@ When creating an employee, pass the selected `designationId` to `POST /api/v1/em
 - `PATCH /api/v1/bookings/:id/status` — CUSTOMER, MANAGER, ADMIN, SUPER_ADMIN, confirm/schedule/cancel
 
 ### Work orders — `/api/v1/work-orders`
-- `POST /api/v1/work-orders` — ADMIN, MANAGER, SUPER_ADMIN, create from confirmed/scheduled booking
+- `POST /api/v1/work-orders` — ADMIN, MANAGER, SUPER_ADMIN, create from confirmed/scheduled booking; accepts optional `employeeIds` for initial assignment (`MEDIUM` priority is normalized to `NORMAL`)
 - `GET /api/v1/work-orders` — Bearer role-scoped list (search/paginate)
 - `GET /api/v1/work-orders/:id` — Bearer, get (ownership enforced)
 - `GET /api/v1/work-orders/:id/status-history` — Bearer, transition history

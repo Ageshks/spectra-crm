@@ -1,10 +1,12 @@
-import { Type, Transform } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsIn,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
 } from 'class-validator';
@@ -16,16 +18,31 @@ export class CreateWorkOrderDto {
   bookingId!: string;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.toUpperCase();
+    return normalized === 'MEDIUM' ? WorkOrderPriority.NORMAL : normalized;
+  })
   @IsIn(Object.values(WorkOrderPriority))
   priority?: WorkOrderPriority;
 
   @IsOptional()
+  @Transform(({ value, obj }) => value ?? obj.preferredDate)
   @IsDateString({}, { message: 'scheduledDate must be an ISO date' })
   scheduledDate?: string;
 
   @IsOptional()
+  @IsDateString()
+  preferredDate?: string;
+
+  @IsOptional()
+  @Transform(({ value, obj }) => value ?? obj.preferredTime)
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'scheduledStartTime must be HH:mm' })
   scheduledStartTime?: string;
+
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  preferredTime?: string;
 
   @IsOptional()
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'scheduledEndTime must be HH:mm' })
@@ -38,7 +55,22 @@ export class CreateWorkOrderDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
+  serviceNotes?: string;
+
+  @IsOptional()
+  @Transform(({ value, obj }) => value ?? obj.assignedManagerId)
+  @IsString()
   managerId?: string;
+
+  @IsOptional()
+  @IsString()
+  assignedManagerId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  employeeIds?: string[];
 }
 
 export class UpdateScheduleDto {
@@ -68,6 +100,11 @@ export class SetManagerDto {
 }
 
 export class UpdatePriorityDto {
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.toUpperCase();
+    return normalized === 'MEDIUM' ? WorkOrderPriority.NORMAL : normalized;
+  })
   @IsIn(Object.values(WorkOrderPriority))
   priority!: WorkOrderPriority;
 }

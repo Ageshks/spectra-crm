@@ -1,8 +1,18 @@
+import { Transform } from 'class-transformer';
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { Role } from '@prisma/client';
-import { IsDateString, IsOptional, IsString, Matches } from 'class-validator';
+import { Role, WorkOrderPriority } from '@prisma/client';
+import {
+  IsArray,
+  IsDateString,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
@@ -33,10 +43,12 @@ export class ConvertEnquiryDto {
   serviceLocationId?: string;
 
   @ApiProperty({ example: '2026-10-10' })
+  @Transform(({ value, obj }) => value ?? obj.scheduledDate)
   @IsDateString({}, { message: 'preferredDate must be an ISO date' })
   preferredDate!: string;
 
   @ApiProperty({ example: '10:30' })
+  @Transform(({ value, obj }) => value ?? obj.scheduledStartTime)
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'preferredTime must be HH:mm' })
   preferredTime!: string;
 
@@ -44,6 +56,48 @@ export class ConvertEnquiryDto {
   @IsOptional()
   @IsString()
   remarks?: string;
+
+  // The dialog may label the same booking date/time as its service schedule.
+  @IsOptional()
+  @IsDateString()
+  scheduledDate?: string;
+
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  scheduledStartTime?: string;
+
+  @IsOptional()
+  @IsIn(Object.values(WorkOrderPriority))
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.toUpperCase();
+    return normalized === 'MEDIUM' ? WorkOrderPriority.NORMAL : normalized;
+  })
+  priority?: WorkOrderPriority;
+
+  @IsOptional()
+  @IsUUID()
+  @Transform(({ value, obj }) => value ?? obj.assignedManagerId)
+  managerId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assignedManagerId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  employeeIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  instructions?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  serviceNotes?: string;
 }
 
 @ApiTags('enquiries')
@@ -111,7 +165,7 @@ export class EnquiriesController {
   @Post(':id/convert')
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOperation({ summary: 'Convert an enquiry into a booking' })
+  @ApiOperation({ summary: 'Convert an enquiry into a booking and optionally create an assigned work order' })
   @ResponseMessage('Enquiry converted to booking')
   convert(
     @CurrentUser() user: AuthUser,

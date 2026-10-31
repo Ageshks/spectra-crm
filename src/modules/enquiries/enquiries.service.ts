@@ -4,7 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EnquiryStatus, NotificationType, Prisma, Role } from '@prisma/client';
+import {
+  BookingStatus,
+  EnquiryStatus,
+  NotificationType,
+  Prisma,
+  Role,
+  WorkAssignmentStatus,
+  WorkOrderPriority,
+  WorkOrderStatus,
+} from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.module';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import {
@@ -65,6 +74,17 @@ const enquiryInclude = {
     },
   },
 } satisfies Prisma.EnquiryInclude;
+
+const convertedWorkOrderInclude = {
+  manager: { select: { id: true, user: { select: { id: true, firstName: true, lastName: true } } } },
+  assignments: {
+    include: {
+      employee: {
+        select: { id: true, employeeNo: true, user: { select: { id: true, firstName: true, lastName: true } } },
+      },
+    },
+  },
+} satisfies Prisma.WorkOrderInclude;
 
 @Injectable()
 export class EnquiriesService {
@@ -274,6 +294,14 @@ export class EnquiriesService {
       preferredDate: string;
       preferredTime: string;
       remarks?: string;
+      scheduledDate?: string;
+      scheduledStartTime?: string;
+      priority?: WorkOrderPriority;
+      managerId?: string;
+      assignedManagerId?: string;
+      employeeIds?: string[];
+      instructions?: string;
+      serviceNotes?: string;
     },
     actorId: string,
   ): Promise<unknown> {
@@ -315,9 +343,42 @@ export class EnquiriesService {
       throw new BadRequestException('preferredDate cannot be in the past');
     }
 
+    const managerId = dto.managerId ?? dto.assignedManagerId;
+    const manager = managerId
+      ? await this.prisma.manager.findUnique({
+          where: { id: managerId },
+          include: { user: { select: { id: true, isActive: true } } },
+        })
+      : null;
+    if (managerId && (!manager || !manager.user.isActive)) {
+      throw new BadRequestException('Manager does not exist or is inactive');
+    }
+
+    const employeeIds = [...new Set(dto.employeeIds ?? [])];
+    const employees = employeeIds.length
+      ? await this.prisma.employee.findMany({
+          where: { id: { in: employeeIds } },
+          include: { user: { select: { id: true, isActive: true } } },
+        })
+      : [];
+    if (employees.length !== employeeIds.length) {
+      throw new BadRequestException('One or more selected employees do not exist');
+    }
+    if (employees.some((employee) => !employee.user.isActive)) {
+      throw new BadRequestException('Cannot assign a deactivated employee');
+    }
+
+    const createWorkOrder = Boolean(managerId || employeeIds.length);
     const bookingNumber = await this.sequences.next('BOOK');
-    const booking = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.booking.create({
+    const workOrderNumber = createWorkOrder ? await this.sequences.next('WO') : undefined;
+    const scheduledDate = dto.scheduledDate ? new Date(dto.scheduledDate) : preferredDate;
+    const scheduledStartTime = dto.scheduledStartTime ?? dto.preferredTime;
+    const [startHour, startMinute] = scheduledStartTime.split(':').map(Number);
+    const scheduledEndTotal = (startHour * 60 + startMinute + service.estimatedDuration) % (24 * 60);
+    const scheduledEndTime = `${String(Math.floor(scheduledEndTotal / 60)).padStart(2, '0')}:${String(scheduledEndTotal % 60).padStart(2, '0')}`;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const createdBooking = await tx.booking.create({
         data: {
           bookingNumber,
           customerId,
@@ -326,10 +387,54 @@ export class EnquiriesService {
           preferredDate,
           preferredTime: dto.preferredTime,
           remarks: dto.remarks ?? enquiry.message ?? undefined,
-          status: 'REQUESTED',
+          status: createWorkOrder ? BookingStatus.ASSIGNED : BookingStatus.REQUESTED,
           createdById: actorId,
         },
       });
+      let workOrder: Prisma.WorkOrderGetPayload<{ include: typeof convertedWorkOrderInclude }> | null = null;
+
+      if (createWorkOrder && workOrderNumber) {
+        const createdWorkOrder = await tx.workOrder.create({
+          data: {
+            workOrderNumber,
+            bookingId: createdBooking.id,
+            customerId,
+            serviceId,
+            serviceLocationId,
+            createdById: actorId,
+            priority: dto.priority ?? WorkOrderPriority.NORMAL,
+            scheduledDate,
+            scheduledStartTime,
+            scheduledEndTime,
+            instructions: dto.instructions ?? dto.serviceNotes ?? dto.remarks ?? enquiry.message ?? undefined,
+            status: WorkOrderStatus.ASSIGNED,
+            ...(manager ? { managerId: manager.id } : {}),
+          },
+        });
+        if (employeeIds.length) {
+          await tx.workAssignment.createMany({
+            data: employeeIds.map((employeeId) => ({
+              workOrderId: createdWorkOrder.id,
+              employeeId,
+              assignedById: actorId,
+              status: WorkAssignmentStatus.ASSIGNED,
+            })),
+          });
+        }
+        await tx.workOrderStatusLog.create({
+          data: {
+            workOrderId: createdWorkOrder.id,
+            fromStatus: null,
+            toStatus: WorkOrderStatus.ASSIGNED,
+            changedById: actorId,
+            note: 'Work order created while converting enquiry',
+          },
+        });
+        workOrder = await tx.workOrder.findUniqueOrThrow({
+          where: { id: createdWorkOrder.id },
+          include: convertedWorkOrderInclude,
+        });
+      }
       await tx.enquiry.update({
         where: { id },
         data: {
@@ -337,11 +442,11 @@ export class EnquiriesService {
           customerId,
           serviceId,
           serviceLocationId,
-          convertedBookingId: created.id,
+          convertedBookingId: createdBooking.id,
           convertedAt: new Date(),
         },
       });
-      return created;
+      return { booking: createdBooking, workOrder };
     });
 
     await this.audit.log({
@@ -351,7 +456,11 @@ export class EnquiriesService {
       entityId: id,
       userId: actorId,
       oldValues: { status: enquiry.status },
-      newValues: { status: EnquiryStatus.CONVERTED, bookingNumber },
+      newValues: {
+        status: EnquiryStatus.CONVERTED,
+        bookingNumber,
+        ...(result.workOrder ? { workOrderNumber, assignedEmployeeCount: employeeIds.length } : {}),
+      },
     });
 
     await this.notifications.notify({
@@ -360,9 +469,30 @@ export class EnquiriesService {
       message: `Your booking ${bookingNumber} has been created`,
       type: NotificationType.BOOKING_CREATED,
       referenceType: 'booking',
-      referenceId: booking.id,
+      referenceId: result.booking.id,
     });
 
-    return booking;
+    if (result.workOrder) {
+      const assigneeNotifications = [
+        ...(manager?.user.id
+          ? [{ userId: manager.user.id, title: 'New work order', message: `Work order ${result.workOrder.workOrderNumber} has been created` }]
+          : []),
+        ...employees.map((employee) => ({
+          userId: employee.user.id,
+          title: 'New work assigned',
+          message: `You have been assigned to work order ${result.workOrder!.workOrderNumber}`,
+        })),
+      ];
+      await this.notifications.notifyMany(
+        assigneeNotifications.map((item) => ({
+          ...item,
+          type: NotificationType.WORK_ASSIGNED,
+          referenceType: 'workOrder',
+          referenceId: result.workOrder!.id,
+        })),
+      );
+    }
+
+    return result.workOrder ? { ...result.booking, workOrder: result.workOrder } : result.booking;
   }
 }

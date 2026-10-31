@@ -9,6 +9,7 @@ import {
   NotificationType,
   Prisma,
   Role,
+  WorkAssignmentStatus,
   WorkOrderPriority,
   WorkOrderStatus,
 } from '@prisma/client';
@@ -123,8 +124,25 @@ export class WorkOrdersService {
     }
 
     if (dto.managerId) {
-      const manager = await this.prisma.manager.findUnique({ where: { id: dto.managerId } });
-      if (!manager) throw new BadRequestException('Manager does not exist');
+      const manager = await this.prisma.manager.findUnique({
+        where: { id: dto.managerId },
+        include: { user: { select: { isActive: true } } },
+      });
+      if (!manager || !manager.user.isActive) throw new BadRequestException('Manager does not exist or is inactive');
+    }
+
+    const employeeIds = [...new Set(dto.employeeIds ?? [])];
+    const employees = employeeIds.length
+      ? await this.prisma.employee.findMany({
+          where: { id: { in: employeeIds } },
+          include: { user: { select: { id: true, isActive: true } } },
+        })
+      : [];
+    if (employees.length !== employeeIds.length) {
+      throw new BadRequestException('One or more selected employees do not exist');
+    }
+    if (employees.some((employee) => !employee.user.isActive)) {
+      throw new BadRequestException('Cannot assign a deactivated employee');
     }
 
     const workOrderNumber = await this.sequences.next('WO');
@@ -142,11 +160,20 @@ export class WorkOrdersService {
           scheduledDate: dto.scheduledDate ? new Date(dto.scheduledDate) : undefined,
           scheduledStartTime: dto.scheduledStartTime,
           scheduledEndTime: dto.scheduledEndTime,
-          instructions: dto.instructions,
+          instructions: dto.instructions ?? dto.serviceNotes,
           status: WorkOrderStatus.ASSIGNED,
         },
-        include: workOrderInclude,
       });
+      if (employeeIds.length) {
+        await tx.workAssignment.createMany({
+          data: employeeIds.map((employeeId) => ({
+            workOrderId: created.id,
+            employeeId,
+            assignedById: actor.id,
+            status: WorkAssignmentStatus.ASSIGNED,
+          })),
+        });
+      }
       await tx.booking.update({
         where: { id: booking.id },
         data: { status: BookingStatus.ASSIGNED },
@@ -160,7 +187,10 @@ export class WorkOrdersService {
           note: 'Work order created',
         },
       });
-      return created;
+      return tx.workOrder.findUniqueOrThrow({
+        where: { id: created.id },
+        include: workOrderInclude,
+      });
     });
 
     await this.audit.log({
@@ -169,19 +199,28 @@ export class WorkOrdersService {
       entity: 'WorkOrder',
       entityId: workOrder.id,
       userId: actor.id,
-      newValues: { workOrderNumber, bookingNumber: booking.bookingNumber },
+      newValues: { workOrderNumber, bookingNumber: booking.bookingNumber, employeeIds },
     });
 
-    if (workOrder.manager) {
-      await this.notifications.notify({
-        userId: workOrder.manager.user.id,
-        title: 'New work order',
-        message: `Work order ${workOrderNumber} has been created`,
-        type: NotificationType.WORK_ASSIGNED,
-        referenceType: 'workOrder',
-        referenceId: workOrder.id,
-      });
-    }
+    await this.notifications.notifyMany([
+      ...(workOrder.manager
+        ? [{
+            userId: workOrder.manager.user.id,
+            title: 'New work order',
+            message: `Work order ${workOrderNumber} has been created`,
+          }]
+        : []),
+      ...workOrder.assignments.map((assignment) => ({
+        userId: assignment.employee.user.id,
+        title: 'New work assigned',
+        message: `You have been assigned to work order ${workOrderNumber}`,
+      })),
+    ].map((item) => ({
+      ...item,
+      type: NotificationType.WORK_ASSIGNED,
+      referenceType: 'workOrder',
+      referenceId: workOrder.id,
+    })));
 
     return workOrder;
   }
