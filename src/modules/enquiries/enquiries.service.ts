@@ -314,13 +314,7 @@ export class EnquiriesService {
       throw new BadRequestException('Closed or cancelled enquiries cannot be converted');
     }
 
-    const customerId = enquiry.customerId ?? dto.customerId;
-    if (!customerId) {
-      throw new BadRequestException('customerId is required to convert this enquiry');
-    }
-    const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
-    if (!customer) throw new BadRequestException('Customer does not exist');
-
+    let customerId = enquiry.customerId ?? dto.customerId;
     const serviceId = dto.serviceId ?? enquiry.serviceId;
     const serviceLocationId = dto.serviceLocationId ?? enquiry.serviceLocationId;
     if (!serviceId) throw new BadRequestException('serviceId is required to convert this enquiry');
@@ -330,10 +324,19 @@ export class EnquiriesService {
 
     const service = await this.prisma.service.findUnique({ where: { id: serviceId } });
     if (!service) throw new BadRequestException('Service does not exist');
-    const address = await this.prisma.customerAddress.findFirst({
-      where: { id: serviceLocationId, customerId },
+    const address = await this.prisma.customerAddress.findUnique({
+      where: { id: serviceLocationId },
+      select: { id: true, customerId: true, isActive: true },
     });
-    if (!address) throw new BadRequestException('Service location does not belong to the customer');
+    if (!address) throw new BadRequestException('Service location does not exist');
+    customerId ??= address.customerId;
+    if (address.customerId !== customerId) {
+      throw new BadRequestException('Service location does not belong to the customer');
+    }
+    if (!address.isActive) throw new BadRequestException('Service location is inactive');
+
+    const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) throw new BadRequestException('Customer does not exist');
 
     const preferredDate = new Date(dto.preferredDate);
     if (Number.isNaN(preferredDate.getTime())) {
