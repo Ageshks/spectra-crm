@@ -169,7 +169,10 @@ export class EmployeesService {
       }
     }
 
-    const employeeNo = await this.sequences.next('EMP');
+    const employeeSequence = await this.sequences.next('EMP');
+    const sequenceParts = employeeSequence.match(/^EMP-(\d{4})-(\d+)$/);
+    if (!sequenceParts) throw new BadRequestException('Could not generate employee ID');
+    const employeeNo = `${dto.employeeIdFormat ?? 'SGPLEMP'}${sequenceParts[1]}${sequenceParts[2]}`;
     const passwordHash = await hashPassword(dto.password);
     const managerDesignation = this.isManagerDesignation(designation);
     const employee = await this.prisma.$transaction(async (tx) => {

@@ -38,6 +38,7 @@ import { UsersModule } from './modules/users/users.module';
 import { WorkAssignmentsModule } from './modules/work-assignments/work-assignments.module';
 import { WorkOrdersModule } from './modules/work-orders/work-orders.module';
 import { WorkPhotosModule } from './modules/work-photos/work-photos.module';
+import { WorkingCalendarModule } from './modules/working-calendar/working-calendar.module';
 import { QueuesModule } from './queues/queues.module';
 
 @Module({
@@ -82,6 +83,7 @@ import { QueuesModule } from './queues/queues.module';
     LeaveModule,
     MaintenanceModule,
     WorkPhotosModule,
+    WorkingCalendarModule,
     UploadsModule,
   ],
   providers: [

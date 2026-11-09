@@ -17,6 +17,7 @@ import {
   safeOrderBy,
 } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
+import { WorkingCalendarService } from '../working-calendar/working-calendar.service';
 import { CheckInDto, CheckOutDto, ListAttendanceDto } from './dto/attendance.dto';
 
 export const attendanceInclude = {
@@ -59,6 +60,7 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly workingCalendar: WorkingCalendarService,
   ) {}
 
   async resolveEmployeeId(actor: AuthUser): Promise<string> {
@@ -88,11 +90,15 @@ export class AttendanceService {
 
   async checkIn(dto: CheckInDto, actor: AuthUser): Promise<unknown> {
     const staff = await this.resolveStaff(actor);
+    const now = new Date();
+    if (!(await this.workingCalendar.isWorkingDate(todayDateString(now)))) {
+      throw new BadRequestException('Today is marked as a non-working day in the working calendar');
+    }
     const gpsEnabled = await this.settings.getBoolean(SETTING_KEYS.GPS_ATTENDANCE_ENABLED, false);
     if (gpsEnabled && !isValidCoordinate(dto.latitude, dto.longitude)) {
       throw new BadRequestException('Valid latitude and longitude are required');
     }
-    const now = new Date(); // server timestamp — never trust client time
+    // Server timestamp — never trust client time.
     const today = new Date(todayDateString(now));
     const existing = await this.prisma.attendance.findUnique({
       where: 'employeeId' in staff

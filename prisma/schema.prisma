@@ -519,17 +519,22 @@ model WorkOrderStatusLog {
 }
 
 model WorkAssignment {
-  id           String               @id @default(uuid()) @db.Uuid
-  workOrderId  String               @db.Uuid
-  employeeId   String               @db.Uuid
-  assignedById String?              @db.Uuid
-  assignedAt   DateTime             @default(now())
-  acceptedAt   DateTime?
-  startedAt    DateTime?
-  completedAt  DateTime?
-  status       WorkAssignmentStatus @default(ASSIGNED)
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  id                       String               @id @default(uuid()) @db.Uuid
+  workOrderId              String               @db.Uuid
+  employeeId               String               @db.Uuid
+  assignedById             String?              @db.Uuid
+  estimatedServiceAmount   Decimal              @default(0) @db.Decimal(10, 2)
+  travelDistanceKm         Decimal              @default(0) @db.Decimal(8, 2)
+  travelAllowanceRate      Decimal              @default(0) @db.Decimal(10, 2)
+  estimatedTravelAllowance Decimal              @default(0) @db.Decimal(10, 2)
+  estimatedOtherExpenses   Decimal              @default(0) @db.Decimal(10, 2)
+  assignedAt               DateTime             @default(now())
+  acceptedAt               DateTime?
+  startedAt                DateTime?
+  completedAt              DateTime?
+  status                   WorkAssignmentStatus @default(ASSIGNED)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
 
   workOrder  WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
   employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)

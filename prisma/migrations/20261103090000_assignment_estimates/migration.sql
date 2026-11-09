@@ -1,0 +1,6 @@
+ALTER TABLE "WorkAssignment"
+  ADD COLUMN "estimatedServiceAmount" DECIMAL(10,2) NOT NULL DEFAULT 0,
+  ADD COLUMN "travelDistanceKm" DECIMAL(8,2) NOT NULL DEFAULT 0,
+  ADD COLUMN "travelAllowanceRate" DECIMAL(10,2) NOT NULL DEFAULT 0,
+  ADD COLUMN "estimatedTravelAllowance" DECIMAL(10,2) NOT NULL DEFAULT 0,
+  ADD COLUMN "estimatedOtherExpenses" DECIMAL(10,2) NOT NULL DEFAULT 0;

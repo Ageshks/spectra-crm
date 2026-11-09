@@ -162,7 +162,7 @@ All versioned routes are prefixed with `/api/v1` (from `API_PREFIX`). Health: `/
 ### Employees — `/api/v1/employees`
 - `GET /api/v1/employees/me` — EMPLOYEE, own profile
 - `GET /api/v1/employees` — ADMIN, MANAGER, SUPER_ADMIN, list employees
-- `POST /api/v1/employees` — ADMIN, MANAGER, SUPER_ADMIN, create employee/field-staff
+- `POST /api/v1/employees` — ADMIN, MANAGER, SUPER_ADMIN, create employee/field-staff; optional `employeeIdFormat`: `SGPLEMP` (default), `SGPL/NAPS/`, or `SGPLTEMP`. Generated IDs append the current year and a six-digit sequence, for example `SGPLEMP2026000001` or `SGPL/NAPS/2026000001`.
 - `GET /api/v1/employees/:id` — ADMIN, MANAGER, SUPER_ADMIN, get employee
 - `PATCH /api/v1/employees/:id` — ADMIN, SUPER_ADMIN, update employee
 - `PATCH /api/v1/employees/:id/status` — ADMIN, SUPER_ADMIN, activate/deactivate
@@ -229,7 +229,7 @@ When creating an employee, pass the selected `designationId` to `POST /api/v1/em
 - `PATCH /api/v1/work-orders/:id/priority` — ADMIN, MANAGER, SUPER_ADMIN, update priority
 
 ### Work assignments — `/api/v1/work-assignments`
-- `POST /api/v1/work-assignments` — ADMIN, MANAGER, SUPER_ADMIN, assign technicians
+- `POST /api/v1/work-assignments` — ADMIN, MANAGER, SUPER_ADMIN, assign technicians; optional estimate fields are `estimatedServiceAmount`, `travelDistanceKm`, `travelAllowanceRate` (INR/km), and `estimatedOtherExpenses` (INR). The manager enters route distance and rate; the API calculates `estimatedTravelAllowance = travelDistanceKm × travelAllowanceRate` and `estimatedTotalAmount` per technician. No automatic routing/distance service is configured.
 - `GET /api/v1/work-assignments` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, list (employees own only)
 - `POST /api/v1/work-assignments/:id/accept` — EMPLOYEE, accept work
 - `POST /api/v1/work-assignments/:id/start` — EMPLOYEE, start work

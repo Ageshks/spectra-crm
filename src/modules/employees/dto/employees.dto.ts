@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -14,6 +15,10 @@ import { PASSWORD_MIN_LENGTH } from '../../../common/constants';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateEmployeeDto {
+  @IsOptional()
+  @IsIn(['SGPLEMP', 'SGPL/NAPS/', 'SGPLTEMP'])
+  employeeIdFormat?: 'SGPLEMP' | 'SGPL/NAPS/' | 'SGPLTEMP';
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)

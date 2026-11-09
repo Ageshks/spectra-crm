@@ -25,7 +25,9 @@ export class WorkAssignmentsController {
 
   @Post()
   @Roles(Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Assign one or more technicians to a work order' })
+  @ApiOperation({
+    summary: 'Assign technicians and save service, travel, and expense estimates',
+  })
   @ResponseMessage('Technicians assigned')
   assign(@CurrentUser() user: AuthUser, @Body() dto: CreateAssignmentDto) {
     return this.assignments.assign(dto, user);

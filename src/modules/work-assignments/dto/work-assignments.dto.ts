@@ -3,13 +3,17 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsNumber,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { WorkAssignmentStatus, WorkTransferStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { ToBoolean } from '../../../common/utils/transformers';
@@ -21,8 +25,41 @@ export class CreateAssignmentDto {
 
   @IsArray()
   @ArrayNotEmpty()
-  @IsString({ each: true })
+  @IsUUID(undefined, { each: true })
   employeeIds!: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  instructions?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(99999999.99)
+  estimatedServiceAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100000)
+  travelDistanceKm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100000)
+  travelAllowanceRate?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(99999999.99)
+  estimatedOtherExpenses?: number;
 }
 
 export class AssignmentActionDto {

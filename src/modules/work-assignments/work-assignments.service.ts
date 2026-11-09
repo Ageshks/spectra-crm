@@ -93,19 +93,39 @@ export class WorkAssignmentsService {
       throw new BadRequestException('All selected employees are already assigned to this work order');
     }
 
-    const created = await this.prisma.$transaction(
-      toCreate.map((employee) =>
-        this.prisma.workAssignment.create({
-          data: {
-            workOrderId: workOrder.id,
-            employeeId: employee.id,
-            assignedById: actor.id,
-            status: WorkAssignmentStatus.ASSIGNED,
-          },
-          include: assignmentInclude,
-        }),
-      ),
-    );
+    const estimatedTravelAllowance = new Prisma.Decimal(dto.travelDistanceKm ?? 0)
+      .mul(dto.travelAllowanceRate ?? 0)
+      .toDecimalPlaces(2);
+    if (estimatedTravelAllowance.greaterThan(99999999.99)) {
+      throw new BadRequestException('Estimated travel allowance exceeds the supported amount');
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (dto.instructions !== undefined) {
+        await tx.workOrder.update({
+          where: { id: workOrder.id },
+          data: { instructions: dto.instructions.trim() },
+        });
+      }
+      return Promise.all(
+        toCreate.map((employee) =>
+          tx.workAssignment.create({
+            data: {
+              workOrderId: workOrder.id,
+              employeeId: employee.id,
+              assignedById: actor.id,
+              estimatedServiceAmount: new Prisma.Decimal(dto.estimatedServiceAmount ?? 0),
+              travelDistanceKm: new Prisma.Decimal(dto.travelDistanceKm ?? 0),
+              travelAllowanceRate: new Prisma.Decimal(dto.travelAllowanceRate ?? 0),
+              estimatedTravelAllowance,
+              estimatedOtherExpenses: new Prisma.Decimal(dto.estimatedOtherExpenses ?? 0),
+              status: WorkAssignmentStatus.ASSIGNED,
+            },
+            include: assignmentInclude,
+          }),
+        ),
+      );
+    });
 
     await this.audit.log({
       action: 'ASSIGN_WORK',
@@ -113,7 +133,14 @@ export class WorkAssignmentsService {
       entity: 'WorkAssignment',
       entityId: workOrder.id,
       userId: actor.id,
-      newValues: { employeeIds: toCreate.map((e) => e.id) },
+      newValues: {
+        employeeIds: toCreate.map((e) => e.id),
+        estimatedServiceAmount: dto.estimatedServiceAmount ?? 0,
+        travelDistanceKm: dto.travelDistanceKm ?? 0,
+        travelAllowanceRate: dto.travelAllowanceRate ?? 0,
+        estimatedTravelAllowance: estimatedTravelAllowance.toString(),
+        estimatedOtherExpenses: dto.estimatedOtherExpenses ?? 0,
+      },
     });
 
     await this.notifications.notifyMany(
@@ -127,7 +154,13 @@ export class WorkAssignmentsService {
       })),
     );
 
-    return created;
+    return created.map((assignment) => ({
+      ...assignment,
+      estimatedTotalAmount: assignment.estimatedServiceAmount
+        .add(assignment.estimatedTravelAllowance)
+        .add(assignment.estimatedOtherExpenses)
+        .toDecimalPlaces(2),
+    }));
   }
 
   async list(query: ListAssignmentsDto, actor: AuthUser): Promise<PaginatedResult<unknown>> {
@@ -163,7 +196,18 @@ export class WorkAssignmentsService {
       }),
       this.prisma.workAssignment.count({ where }),
     ]);
-    return paginated(items, page, limit, total);
+    return paginated(
+      items.map((assignment) => ({
+        ...assignment,
+        estimatedTotalAmount: assignment.estimatedServiceAmount
+          .add(assignment.estimatedTravelAllowance)
+          .add(assignment.estimatedOtherExpenses)
+          .toDecimalPlaces(2),
+      })),
+      page,
+      limit,
+      total,
+    );
   }
 
   /** Loads an assignment ensuring the acting employee owns it (rule: employee cannot touch others' work). */

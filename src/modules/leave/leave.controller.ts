@@ -15,7 +15,7 @@ export class LeaveController {
   constructor(private readonly leave: LeaveService) {}
 
   @Post()
-  @Roles(Role.EMPLOYEE, Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Apply for leave' })
   @ResponseMessage('Leave request submitted')
   apply(@CurrentUser() user: AuthUser, @Body() dto: CreateLeaveDto) {
@@ -42,7 +42,7 @@ export class LeaveController {
   @Post(':id/decision')
   @Roles(Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOperation({ summary: 'Approve or reject leave (manager only)' })
+  @ApiOperation({ summary: 'Approve or reject leave (manager or admin)' })
   @ResponseMessage('Leave decision recorded')
   decide(
     @CurrentUser() user: AuthUser,

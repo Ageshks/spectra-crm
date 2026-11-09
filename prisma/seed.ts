@@ -17,6 +17,12 @@ const DEFAULT_DESIGNATIONS = [
   'Admin',
 ];
 
+const required = (name: string): string => {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} must be set before running the seed`);
+  return value;
+};
+
 const first = (names: string[], fallback: string): string => {
   for (const name of names) {
     const value = process.env[name];
@@ -42,8 +48,8 @@ async function main(): Promise<void> {
     }
   }
 
-  const adminEmail = first(['SEED_ADMIN_EMAIL'], 'admin@example.com').toLowerCase();
-  const adminPassword = first(['SEED_ADMIN_PASSWORD'], 'ChangeMe123!');
+  const adminEmail = required('SEED_ADMIN_EMAIL').toLowerCase();
+  const adminPassword = required('SEED_ADMIN_PASSWORD');
   const adminFirst = first(['SEED_ADMIN_FIRST_NAME'], 'Site');
   const adminLast = first(['SEED_ADMIN_LAST_NAME'], 'Admin');
 
