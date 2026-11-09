@@ -13,6 +13,35 @@ const supportedYear = (year: number): void => {
 
 const settingKey = (year: number): string => `WORKING_CALENDAR_${year}`;
 
+const generalHolidaysFor = (year: number): WorkingCalendar['exceptions'] => {
+  const fixed = [
+    { date: `${year}-01-26`, title: 'Republic Day' },
+    { date: `${year}-08-15`, title: 'Independence Day' },
+    { date: `${year}-10-02`, title: "Mahatma Gandhi's Birthday" },
+    { date: `${year}-12-25`, title: 'Christmas Day' },
+  ];
+  // India Post's All India Holidays list for 2026; lunar dates can vary by
+  // region or later government notice, so admins can edit each calendar entry.
+  const holidays2026 = [
+    { date: '2026-01-26', title: 'Republic Day' },
+    { date: '2026-03-21', title: 'Id-ul-Fitr' },
+    { date: '2026-03-31', title: 'Mahavir Jayanti' },
+    { date: '2026-04-03', title: 'Good Friday' },
+    { date: '2026-05-01', title: 'Buddha Purnima' },
+    { date: '2026-05-27', title: 'Id-ul-Zuha' },
+    { date: '2026-06-26', title: 'Muharram' },
+    { date: '2026-08-15', title: 'Independence Day' },
+    { date: '2026-08-26', title: "Prophet Mohammad's Birthday" },
+    { date: '2026-10-02', title: "Mahatma Gandhi's Birthday" },
+    { date: '2026-10-20', title: 'Dussehra' },
+    { date: '2026-11-08', title: 'Diwali' },
+    { date: '2026-11-24', title: "Guru Nanak's Birthday" },
+    { date: '2026-12-25', title: 'Christmas Day' },
+  ];
+  const source = year === 2026 ? holidays2026 : fixed;
+  return source.map(({ date, title }) => ({ date, title, type: 'HOLIDAY' as const }));
+};
+
 export interface WorkingCalendar {
   year: number;
   startDate: string;
@@ -51,7 +80,7 @@ export class WorkingCalendarService {
       startDate: `${year}-01-01`,
       endDate: `${year}-12-31`,
       workingWeekdays: [1, 2, 3, 4, 5],
-      exceptions: [],
+      exceptions: generalHolidaysFor(year),
     };
   }
 
