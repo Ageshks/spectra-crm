@@ -1,8 +1,12 @@
-import { IsBoolean, IsOptional, IsString, Matches, MaxLength, MinLength, IsNotEmpty } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, Matches, MaxLength, MinLength, IsNotEmpty, IsUUID } from 'class-validator';
 import { PASSWORD_MIN_LENGTH } from '../../../common/constants';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateManagerDto {
+  @IsOptional()
+  @IsUUID()
+  companyId?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)

@@ -1,5 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Role, WorkAssignmentStatus, WorkOrderStatus } from '@prisma/client';
+import { Prisma, Role, WorkAssignmentStatus, WorkOrderStatus } from '@prisma/client';
 import { WorkAssignmentsService } from './work-assignments.service';
 
 describe('WorkAssignmentsService mobile contracts', () => {
@@ -8,6 +8,7 @@ describe('WorkAssignmentsService mobile contracts', () => {
     email: 'tech@example.test',
     role: Role.EMPLOYEE,
     isActive: true,
+    companyId: 'company-1',
     employeeId: 'employee-1',
   };
 
@@ -19,6 +20,7 @@ describe('WorkAssignmentsService mobile contracts', () => {
     employee: { user: { id: actor.id, firstName: 'Field', lastName: 'Tech' } },
     workOrder: {
       id: 'work-order-1',
+      companyId: actor.companyId,
       status: WorkOrderStatus.ASSIGNED,
       bookingId: 'booking-1',
       workOrderNumber: 'WO-1',
@@ -59,7 +61,14 @@ describe('WorkAssignmentsService mobile contracts', () => {
   it('lists the assignment database id separately from workOrderId', async () => {
     const { prisma, service } = setup();
     prisma.workAssignment.findMany.mockResolvedValue([
-      { id: 'assignment-1', workOrderId: 'work-order-1', workOrder: { id: 'work-order-1' } },
+      {
+        id: 'assignment-1',
+        workOrderId: 'work-order-1',
+        workOrder: { id: 'work-order-1' },
+        estimatedServiceAmount: new Prisma.Decimal(0),
+        estimatedTravelAllowance: new Prisma.Decimal(0),
+        estimatedOtherExpenses: new Prisma.Decimal(0),
+      },
     ]);
     prisma.workAssignment.count.mockResolvedValue(1);
 
@@ -71,7 +80,7 @@ describe('WorkAssignmentsService mobile contracts', () => {
       workOrder: { id: 'work-order-1' },
     });
     expect(prisma.workAssignment.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ AND: [{ employeeId: actor.employeeId }] }) }),
+      expect.objectContaining({ where: expect.objectContaining({ AND: [{ employeeId: actor.employeeId }, { workOrder: { companyId: actor.companyId } }] }) }),
     );
   });
 
@@ -131,3 +140,4 @@ describe('WorkAssignmentsService mobile contracts', () => {
     expect(prisma.workAssignment.updateMany).not.toHaveBeenCalled();
   });
 });
+import { describe, expect, it, jest } from '@jest/globals';

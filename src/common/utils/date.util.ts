@@ -7,6 +7,28 @@ export const timeToMinutes = (time: string): number => {
   return hours * 60 + minutes;
 };
 
+/** Minutes since midnight in the configured application timezone. */
+export const minutesOfDayInTz = (date: Date): number => {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE(),
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const value = (type: string): number => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return value('hour') * 60 + value('minute');
+};
+
+/** Clock time in the configured timezone, formatted as HH:mm:ss. */
+export const timeOfDayInTz = (date: Date): string =>
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE(),
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
+
 export const minutesToTime = (total: number): string => {
   const clamped = Math.max(0, total);
   const hours = Math.floor(clamped / 60) % 24;

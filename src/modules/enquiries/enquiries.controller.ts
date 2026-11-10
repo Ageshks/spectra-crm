@@ -116,6 +116,7 @@ export class EnquiriesController {
       id: user?.id ?? '',
       role: user?.role ?? Role.CUSTOMER,
       customerId: user?.customerId,
+      companyId: user?.companyId,
     });
   }
 
@@ -124,7 +125,7 @@ export class EnquiriesController {
   @ApiOperation({ summary: 'List enquiries (search, filter, paginate)' })
   @ResponseMessage('Enquiries retrieved')
   list(@CurrentUser() user: AuthUser, @Query() query: ListEnquiriesDto) {
-    return this.enquiries.list(query, { id: user.id, role: user.role });
+    return this.enquiries.list(query, user);
   }
 
   @Get(':id')
@@ -132,8 +133,8 @@ export class EnquiriesController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Get an enquiry' })
   @ResponseMessage('Enquiry retrieved')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.enquiries.getById(id);
+  get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.enquiries.getById(id, user);
   }
 
   @Post(':id/assign')
@@ -146,7 +147,7 @@ export class EnquiriesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AssignEnquiryDto,
   ) {
-    return this.enquiries.assign(id, dto, user.id);
+    return this.enquiries.assign(id, dto, user);
   }
 
   @Patch(':id/status')
@@ -159,7 +160,7 @@ export class EnquiriesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateEnquiryStatusDto,
   ) {
-    return this.enquiries.updateStatus(id, dto, user.id);
+    return this.enquiries.updateStatus(id, dto, user);
   }
 
   @Post(':id/convert')
@@ -172,6 +173,6 @@ export class EnquiriesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ConvertEnquiryDto,
   ) {
-    return this.enquiries.convertToBooking(id, dto, user.id);
+    return this.enquiries.convertToBooking(id, dto, user);
   }
 }

@@ -1,10 +1,15 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
+import { ConfigService } from '@nestjs/config';
+import { AppConfig } from '../../config/configuration';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthUser } from '../../common/types/auth.types';
+import { CloudinaryService, validateImageFile } from '../../common/uploads/uploads.module';
 import { CreateExpenseDto, ExpenseDecisionDto, ListExpensesDto } from './dto/expenses.dto';
 import { ExpensesService } from './expenses.service';
 
@@ -12,7 +17,26 @@ import { ExpensesService } from './expenses.service';
 @ApiBearerAuth()
 @Controller('expenses')
 export class ExpensesController {
-  constructor(private readonly expenses: ExpensesService) {}
+  constructor(
+    private readonly expenses: ExpensesService,
+    private readonly cloudinary: CloudinaryService,
+    private readonly config: ConfigService,
+  ) {}
+
+  @Post('receipt')
+  @Roles(Role.EMPLOYEE)
+  @UseInterceptors(FileInterceptor('receipt', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { receipt: { type: 'string', format: 'binary' } }, required: ['receipt'] } })
+  @ApiOperation({ summary: 'Upload a receipt image and return its permanent URL' })
+  @ResponseMessage('Expense receipt uploaded')
+  async uploadReceipt(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('receipt file is required');
+    const uploads = this.config.get<AppConfig['uploads']>('uploads');
+    validateImageFile(file, uploads?.maxFileSize ?? 5 * 1024 * 1024);
+    const uploaded = await this.cloudinary.uploadImage(file, 'spectra/expense-receipts');
+    return { receiptUrl: uploaded.imageUrl, thumbnailUrl: uploaded.thumbnailUrl };
+  }
 
   @Post()
   @Roles(Role.EMPLOYEE)

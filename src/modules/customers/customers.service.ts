@@ -14,6 +14,7 @@ import {
   safeOrderBy,
 } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
+import { AuthUser } from '../../common/types/auth.types';
 import {
   CreateAddressDto,
   CreateCustomerDto,
@@ -40,9 +41,10 @@ export class CustomersService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(query: ListCustomersDto): Promise<PaginatedResult<unknown>> {
+  async list(query: ListCustomersDto, actor?: AuthUser): Promise<PaginatedResult<unknown>> {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
     const where: Prisma.CustomerWhereInput = {
+      ...(actor && actor.role !== Role.SUPER_ADMIN ? { companyId: actor.companyId ?? '__none__' } : {}),
       ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
       ...(search
         ? {
@@ -69,7 +71,11 @@ export class CustomersService {
     return paginated(items, page, limit, total);
   }
 
-  async create(dto: CreateCustomerDto, actorId: string): Promise<unknown> {
+  async create(dto: CreateCustomerDto, actor: AuthUser): Promise<unknown> {
+    const companyId = actor.role === Role.SUPER_ADMIN ? dto.companyId : actor.companyId;
+    if (!companyId || !await this.prisma.company.findFirst({ where: { id: companyId, isActive: true }, select: { id: true } })) {
+      throw new BadRequestException('An active company is required to create a customer');
+    }
     const email = dto.email.toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException('An account with this email already exists');
@@ -77,7 +83,9 @@ export class CustomersService {
     const passwordHash = await hashPassword(dto.password);
     const customer = await this.prisma.customer.create({
       data: {
+        company: { connect: { id: companyId } },
         notes: dto.notes,
+        organizationName: dto.organizationName,
         user: {
           create: {
             firstName: dto.firstName,
@@ -86,6 +94,7 @@ export class CustomersService {
             phone: dto.phone,
             passwordHash,
             role: Role.CUSTOMER,
+            companyId,
             isVerified: true,
           },
         },
@@ -99,15 +108,15 @@ export class CustomersService {
       module: 'customers',
       entity: 'Customer',
       entityId: customer.id,
-      userId: actorId,
+      userId: actor.id,
       newValues: { email, firstName: dto.firstName, lastName: dto.lastName },
     });
     return customer;
   }
 
-  async getById(id: string): Promise<unknown> {
+  async getById(id: string, actor?: AuthUser): Promise<unknown> {
     const customer = await this.prisma.customer.findUnique({
-      where: { id },
+      where: { id, ...(actor && actor.role !== Role.SUPER_ADMIN ? { companyId: actor.companyId ?? '__none__' } : {}) },
       include: customerInclude,
     });
     if (!customer) throw new NotFoundException('Customer not found');
@@ -127,7 +136,12 @@ export class CustomersService {
     const customer = await this.prisma.customer.findUnique({ where: { userId } });
     if (!customer) throw new NotFoundException('Customer profile not found');
 
-    const { notes, ...userFields } = dto;
+    const { notes, organizationName, ...userFields } = dto;
+    const email = userFields.email?.trim().toLowerCase();
+    if (email && email !== (await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email) {
+      const emailClash = await this.prisma.user.findUnique({ where: { email } });
+      if (emailClash) throw new BadRequestException('Email address is already in use');
+    }
     if (userFields.phone) {
       const clash = await this.prisma.user.findFirst({
         where: { phone: userFields.phone, NOT: { id: userId } },
@@ -136,10 +150,10 @@ export class CustomersService {
     }
 
     const [updated] = await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: userId }, data: userFields }),
+      this.prisma.user.update({ where: { id: userId }, data: { ...userFields, ...(email ? { email } : {}) } }),
       this.prisma.customer.update({
         where: { id: customer.id },
-        data: { notes: notes ?? undefined },
+        data: { notes: notes ?? undefined, organizationName: organizationName ?? undefined },
       }),
     ]);
 
@@ -154,11 +168,11 @@ export class CustomersService {
     return this.getByUserId(userId);
   }
 
-  async updateAdmin(id: string, dto: UpdateCustomerDto, actorId: string): Promise<unknown> {
-    const customer = await this.prisma.customer.findUnique({ where: { id } });
+  async updateAdmin(id: string, dto: UpdateCustomerDto, actor: AuthUser): Promise<unknown> {
+    const customer = await this.prisma.customer.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!customer) throw new NotFoundException('Customer not found');
-    await this.updateByUserId(customer.userId, dto, actorId);
-    return this.getById(id);
+    await this.updateByUserId(customer.userId, dto, actor.id);
+    return this.getById(id, actor);
   }
 
   // ---------------------------------------------------------------
@@ -238,6 +252,23 @@ export class CustomersService {
     return updated;
   }
 
+  async updateAddressForCustomer(customerId: string, addressId: string, dto: UpdateAddressDto, actor: AuthUser): Promise<unknown> {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) },
+      select: { id: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+    const existing = await this.prisma.customerAddress.findFirst({ where: { id: addressId, customerId } });
+    if (!existing) throw new NotFoundException('Service location not found');
+    const address = await this.prisma.customerAddress.update({ where: { id: addressId }, data: dto });
+    await this.audit.log({
+      action: 'ADMIN_UPDATE_SERVICE_LOCATION', module: 'customers', entity: 'CustomerAddress', entityId: addressId,
+      userId: actor.id, oldValues: { locationName: existing.locationName, city: existing.city, state: existing.state },
+      newValues: dto as Prisma.InputJsonValue,
+    });
+    return address;
+  }
+
   /** Soft delete: the location is deactivated to preserve booking history. */
   async deactivateAddress(userId: string, addressId: string, actorId: string): Promise<unknown> {
     const customerId = await this.resolveCustomerId(userId);
@@ -267,9 +298,9 @@ export class CustomersService {
   // Delete / deactivate customer (admin)
   // ---------------------------------------------------------------
 
-  async remove(id: string, actorId: string): Promise<unknown> {
-    const existing = await this.prisma.customer.findUnique({
-      where: { id },
+  async remove(id: string, actor: AuthUser): Promise<unknown> {
+    const existing = await this.prisma.customer.findFirst({
+      where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) },
       include: {
         _count: {
           select: {
@@ -300,7 +331,7 @@ export class CustomersService {
         module: 'customers',
         entity: 'Customer',
         entityId: id,
-        userId: actorId,
+        userId: actor.id,
         oldValues: { isActive: existing.isActive },
         newValues: { isActive: false },
       });
@@ -316,7 +347,7 @@ export class CustomersService {
       module: 'customers',
       entity: 'Customer',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       oldValues: { isActive: existing.isActive },
     });
     return { id, deleted: true };

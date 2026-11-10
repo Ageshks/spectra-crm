@@ -22,10 +22,10 @@
     "seed": "ts-node --transpile-only prisma/seed.ts",
     "typecheck": "tsc --noEmit",
     "docker:build": "docker build -t spectra-api .",
-    "test": "jest",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "test:e2e": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./test/jest-e2e.json --runInBand",
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\""
   },
   "prisma": {
@@ -34,7 +34,21 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "testRegex": ".spec.ts$"
+    "testRegex": ".spec.ts$",
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
+    "transform": {
+      "^.+\\.ts$": [
+        "ts-jest",
+        {
+          "useESM": true,
+          "tsconfig": {
+            "module": "ESNext"
+          }
+        }
+      ]
+    }
   },
   "dependencies": {
     "@nestjs/common": "^12.1.2",
@@ -59,6 +73,7 @@
     "ioredis": "^6.0.0",
     "joi": "^18.2.9",
     "multer": "^2.4.0",
+    "nodemailer": "^10.5.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "prisma": "^6.19.3",
@@ -72,6 +87,7 @@
     "@types/jest": "^30.0.0",
     "@types/multer": "^2.3.0",
     "@types/node": "^26.6.4",
+    "@types/nodemailer": "^8.0.2",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^6.0.3",
     "jest": "^30.5.2",

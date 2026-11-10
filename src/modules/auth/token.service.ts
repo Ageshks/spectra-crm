@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Role, User } from '@prisma/client';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { JwtPayload } from '../../common/types/auth.types';
 
@@ -30,6 +30,7 @@ const sha256 = (value: string): string =>
 export class TokenService {
   private readonly accessTtl: number;
   private readonly refreshTtl: number;
+  private readonly otpPepper: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -38,6 +39,7 @@ export class TokenService {
   ) {
     this.accessTtl = readNumber(config, ['jwt.accessTtl', 'JWT_ACCESS_TTL'], 900);
     this.refreshTtl = readNumber(config, ['jwt.refreshTtl', 'JWT_REFRESH_TTL'], 604800);
+    this.otpPepper = config.get<string>('jwt.refreshSecret') ?? config.get<string>('JWT_REFRESH_SECRET') ?? 'missing-reset-otp-secret';
   }
 
   async issuePair(
@@ -140,6 +142,45 @@ export class TokenService {
       data: { userId, tokenHash: sha256(token), expiresAt },
     });
     return { token, expiresAt };
+  }
+
+  async createPasswordResetOtp(userId: string): Promise<{ otp: string; expiresAt: Date }> {
+    const now = new Date();
+    await this.prisma.passwordResetToken.updateMany({ where: { userId, usedAt: null }, data: { usedAt: now } });
+    const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
+    await this.prisma.passwordResetToken.create({
+      data: { userId, tokenHash: this.hashOtp(userId, otp), expiresAt, attempts: 0 },
+    });
+    return { otp, expiresAt };
+  }
+
+  async consumePasswordResetOtp(userId: string, otp: string): Promise<boolean> {
+    const now = new Date();
+    const record = await this.prisma.passwordResetToken.findFirst({
+      where: { userId, usedAt: null, expiresAt: { gt: now }, attempts: { lt: 5 } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!record) return false;
+    const expected = Buffer.from(this.hashOtp(userId, otp), 'hex');
+    const stored = Buffer.from(record.tokenHash, 'hex');
+    const matches = expected.length === stored.length && timingSafeEqual(expected, stored);
+    if (!matches) {
+      await this.prisma.passwordResetToken.updateMany({
+        where: { id: record.id, usedAt: null, attempts: { lt: 5 } },
+        data: { attempts: { increment: 1 } },
+      });
+      return false;
+    }
+    const consumed = await this.prisma.passwordResetToken.updateMany({
+      where: { id: record.id, userId, tokenHash: record.tokenHash, usedAt: null, expiresAt: { gt: now }, attempts: { lt: 5 } },
+      data: { usedAt: now },
+    });
+    return consumed.count === 1;
+  }
+
+  private hashOtp(userId: string, otp: string): string {
+    return createHmac('sha256', this.otpPepper).update(`${userId}:${otp}`).digest('hex');
   }
 
   async consumePasswordResetToken(rawToken: string): Promise<string | null> {

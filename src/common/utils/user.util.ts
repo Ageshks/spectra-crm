@@ -7,6 +7,7 @@ export interface SafeUser {
   email: string;
   phone: string | null;
   role: User['role'];
+  companyId: string | null;
   profilePhoto: string | null;
   isActive: boolean;
   isVerified: boolean;
@@ -23,6 +24,7 @@ export const pickUser = (user: User): SafeUser => ({
   email: user.email,
   phone: user.phone,
   role: user.role,
+  companyId: user.companyId,
   profilePhoto: user.profilePhoto,
   isActive: user.isActive,
   isVerified: user.isVerified,

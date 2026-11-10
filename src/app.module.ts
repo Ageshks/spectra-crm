@@ -18,6 +18,7 @@ import { WorkersModule } from './jobs/workers.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DesignationsModule } from './modules/designations/designations.module';
@@ -26,6 +27,8 @@ import { EnquiriesModule } from './modules/enquiries/enquiries.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { ExportsModule } from './modules/exports/exports.module';
 import { HealthModule } from './modules/health/health.module';
+import { EarningsModule } from './modules/earnings/earnings.module';
+import { CompaniesModule } from './modules/companies/companies.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { ManagersModule } from './modules/managers/managers.module';
@@ -62,6 +65,8 @@ import { QueuesModule } from './queues/queues.module';
     AuthModule,
     AttendanceModule,
     HealthModule,
+    EarningsModule,
+    CompaniesModule,
     QueuesModule,
     UsersModule,
     CustomersModule,
@@ -75,6 +80,7 @@ import { QueuesModule } from './queues/queues.module';
     ExpensesModule,
     ExportsModule,
     BookingsModule,
+    BillingModule,
     WorkOrdersModule,
     WorkAssignmentsModule,
     ServiceReportsModule,

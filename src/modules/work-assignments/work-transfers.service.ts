@@ -31,7 +31,7 @@ const transferInclude = {
   },
   requestedBy: { select: { id: true, firstName: true, lastName: true } },
   approvedBy: { select: { id: true, firstName: true, lastName: true } },
-  workOrder: { select: { id: true, workOrderNumber: true, status: true, managerId: true } },
+  workOrder: { select: { id: true, workOrderNumber: true, status: true, managerId: true, companyId: true } },
 } satisfies Prisma.WorkTransferInclude;
 
 @Injectable()
@@ -56,6 +56,7 @@ export class WorkTransfersService {
       include: { manager: true },
     });
     if (!workOrder) throw new NotFoundException('Work order not found');
+    if (actor.companyId !== workOrder.companyId) throw new ForbiddenException('Work order is outside your company');
 
     const assignment = await this.prisma.workAssignment.findFirst({
       where: {
@@ -80,6 +81,7 @@ export class WorkTransfersService {
     });
     if (
       !target ||
+      target.companyId !== workOrder.companyId ||
       !target.user.isActive ||
       !target.designationRecord?.isActive ||
       !target.designationRecord.canUseFieldApp
@@ -149,9 +151,13 @@ export class WorkTransfersService {
     }
     const workOrder = await this.prisma.workOrder.findUnique({
       where: { id: dto.workOrderId },
-      select: { id: true, workOrderNumber: true, status: true },
+      select: { id: true, workOrderNumber: true, status: true, managerId: true, companyId: true },
     });
     if (!workOrder) throw new NotFoundException('Work order not found');
+    if (actor.role !== Role.SUPER_ADMIN && actor.companyId !== workOrder.companyId) throw new ForbiddenException('Work order is outside your company');
+    if (actor.role === Role.MANAGER && workOrder.managerId !== actor.managerId) {
+      throw new ForbiddenException('You can only reassign work orders managed by you');
+    }
     if (
       workOrder.status === WorkOrderStatus.COMPLETED ||
       workOrder.status === WorkOrderStatus.APPROVED ||
@@ -177,6 +183,7 @@ export class WorkTransfersService {
     });
     if (
       !target ||
+      target.companyId !== workOrder.companyId ||
       !target.user.isActive ||
       !target.designationRecord?.isActive ||
       !target.designationRecord.canUseFieldApp
@@ -261,6 +268,12 @@ export class WorkTransfersService {
       include: { ...transferInclude, workOrder: { include: { manager: true } } },
     });
     if (!transfer) throw new NotFoundException('Transfer not found');
+    if (actor.role === Role.MANAGER && transfer.workOrder.managerId !== actor.managerId) {
+      throw new ForbiddenException('You are not authorized to decide this transfer');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && actor.companyId !== transfer.workOrder.companyId) {
+      throw new ForbiddenException('Transfer is outside your company');
+    }
     if (transfer.status !== WorkTransferStatus.PENDING) {
       throw new BadRequestException(`Transfer is already ${transfer.status}`);
     }
@@ -393,6 +406,10 @@ export class WorkTransfersService {
         OR: [{ fromEmployeeId: actor.employeeId }, { toEmployeeId: actor.employeeId }],
       });
     }
+    if (actor.role === Role.MANAGER) {
+      and.push({ workOrder: { managerId: actor.managerId ?? '__none__' } });
+    }
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ workOrder: { companyId: actor.companyId ?? '__none__' } });
 
     const where: Prisma.WorkTransferWhereInput = {
       ...(and.length ? { AND: and } : {}),
@@ -414,12 +431,18 @@ export class WorkTransfersService {
     return paginated(items, page, limit, total);
   }
 
-  async getById(id: string): Promise<unknown> {
+  async getById(id: string, actor: AuthUser): Promise<unknown> {
     const transfer = await this.prisma.workTransfer.findUnique({
       where: { id },
       include: transferInclude,
     });
     if (!transfer) throw new NotFoundException('Transfer not found');
+    if (actor.role === Role.EMPLOYEE && transfer.fromEmployeeId !== actor.employeeId && transfer.toEmployeeId !== actor.employeeId) {
+      throw new ForbiddenException('You are not authorized to access this transfer');
+    }
+    if (actor.role === Role.MANAGER && transfer.workOrder.managerId !== actor.managerId) {
+      throw new ForbiddenException('You are not authorized to access this transfer');
+    }
     return transfer;
   }
 }

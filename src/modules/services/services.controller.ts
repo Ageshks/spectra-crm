@@ -28,15 +28,15 @@ export class ServicesController {
   @ApiOperation({ summary: 'Create a service' })
   @ResponseMessage('Service created')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateServiceDto) {
-    return this.services.create(dto, user.id);
+    return this.services.create(dto, user);
   }
 
   @Get(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Get a service' })
   @ResponseMessage('Service retrieved')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.services.getById(id);
+  get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.services.getById(id, user);
   }
 
   @Patch(':id')
@@ -49,7 +49,7 @@ export class ServicesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateServiceDto,
   ) {
-    return this.services.update(id, dto, user.id);
+    return this.services.update(id, dto, user);
   }
 
   @Patch(':id/status')
@@ -62,7 +62,7 @@ export class ServicesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: { isActive: boolean },
   ) {
-    return this.services.setStatus(id, dto.isActive, user.id);
+    return this.services.setStatus(id, dto.isActive, user);
   }
 
   @Delete(':id')
@@ -71,6 +71,6 @@ export class ServicesController {
   @ApiOperation({ summary: 'Delete a service when safe, otherwise deactivate' })
   @ResponseMessage('Service removed')
   remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.services.remove(id, user.id);
+    return this.services.remove(id, user);
   }
 }

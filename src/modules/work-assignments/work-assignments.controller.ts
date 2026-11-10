@@ -129,8 +129,8 @@ export class WorkTransfersController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Get a transfer request' })
   @ResponseMessage('Transfer retrieved')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.transfers.getById(id);
+  get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.transfers.getById(id, user);
   }
 
   @Patch(':id/decision')

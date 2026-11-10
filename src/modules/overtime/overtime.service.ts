@@ -7,7 +7,7 @@ import {
 import { NotificationType, OvertimePaymentStatus, OvertimeStatus, Prisma, Role } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.module';
 import { AuthUser } from '../../common/types/auth.types';
-import { todayDateString } from '../../common/utils/date.util';
+import { timeOfDayInTz, todayDateString } from '../../common/utils/date.util';
 import {
   normalizePagination,
   paginated,
@@ -54,6 +54,8 @@ export class OvertimeService {
 
   async request(dto: CreateOvertimeDto, actor: AuthUser): Promise<unknown> {
     const employeeId = await this.resolveEmployeeId(actor, dto.employeeId);
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId }, select: { companyId: true } });
+    if (!employee || (actor.role !== Role.SUPER_ADMIN && employee.companyId !== actor.companyId)) throw new ForbiddenException('Employee is outside your company');
     const probe = new Date(`${dto.date}T00:00:00`);
     if (Number.isNaN(probe.getTime())) throw new BadRequestException('Invalid date');
 
@@ -76,10 +78,7 @@ export class OvertimeService {
     }
     const durationMinutes = elapsedMinutes - requiredMinutes;
     const overtimeStart = new Date(record.checkInTime.getTime() + requiredMinutes * 60_000);
-    const formatTime = (value: Date): string => {
-      const pad = (n: number): string => String(n).padStart(2, '0');
-      return `${pad(value.getHours())}:${pad(value.getMinutes())}:00`;
-    };
+    const formatTime = (value: Date): string => timeOfDayInTz(value);
 
     const dup = await this.prisma.overtime.findFirst({
       where: { employeeId, date: { gte: dayStart, lte: dayEnd }, status: { not: OvertimeStatus.REJECTED } },
@@ -111,10 +110,14 @@ export class OvertimeService {
   async list(query: ListOvertimeDto, actor: AuthUser): Promise<PaginatedResult<unknown>> {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
     const and: Prisma.OvertimeWhereInput[] = [];
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ employee: { companyId: actor.companyId ?? '__none__' } });
     if (actor.role === Role.EMPLOYEE) {
       and.push({ employeeId: await this.attendance.resolveEmployeeId(actor) });
     } else if (query.employeeId) {
       and.push({ employeeId: query.employeeId });
+    }
+    if (actor.role === Role.MANAGER) {
+      and.push({ employee: { assignments: { some: { workOrder: { managerId: actor.managerId ?? '__none__' } } } } });
     }
     if (query.status) and.push({ status: query.status });
     if (query.dateFrom || query.dateTo) {
@@ -149,6 +152,10 @@ export class OvertimeService {
         throw new ForbiddenException('You cannot access another employee record');
       }
     }
+    if (actor.role === Role.MANAGER && !await this.isInManagerTeam(record.employeeId, actor.managerId)) {
+      throw new ForbiddenException('You are not authorized to access this overtime record');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && (await this.prisma.employee.findUnique({ where: { id: record.employeeId }, select: { companyId: true } }))?.companyId !== actor.companyId) throw new ForbiddenException('Overtime is outside your company');
     return record;
   }
 
@@ -158,6 +165,10 @@ export class OvertimeService {
       include: { employee: { include: { user: { select: { id: true } } } } },
     });
     if (!record) throw new NotFoundException('Overtime record not found');
+    if (actor.role === Role.MANAGER && !await this.isInManagerTeam(record.employeeId, actor.managerId)) {
+      throw new ForbiddenException('You are not authorized to decide this overtime record');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && (await this.prisma.employee.findUnique({ where: { id: record.employeeId }, select: { companyId: true } }))?.companyId !== actor.companyId) throw new ForbiddenException('Overtime is outside your company');
     if (record.status !== OvertimeStatus.PENDING) {
       throw new BadRequestException(`Overtime is already ${record.status}`);
     }
@@ -190,6 +201,10 @@ export class OvertimeService {
       include: { employee: { include: { user: { select: { id: true } } } } },
     });
     if (!record) throw new NotFoundException('Overtime record not found');
+    if (actor.role === Role.MANAGER && !await this.isInManagerTeam(record.employeeId, actor.managerId)) {
+      throw new ForbiddenException('You are not authorized to pay this overtime record');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && (await this.prisma.employee.findUnique({ where: { id: record.employeeId }, select: { companyId: true } }))?.companyId !== actor.companyId) throw new ForbiddenException('Overtime is outside your company');
     if (record.status !== OvertimeStatus.APPROVED) {
       throw new BadRequestException('Only approved overtime can be paid');
     }
@@ -230,5 +245,14 @@ export class OvertimeService {
       referenceId: id,
     });
     return updated;
+  }
+
+  private async isInManagerTeam(employeeId: string, managerId?: string): Promise<boolean> {
+    if (!managerId) return false;
+    const assignment = await this.prisma.workAssignment.findFirst({
+      where: { employeeId, workOrder: { managerId } },
+      select: { id: true },
+    });
+    return !!assignment;
   }
 }

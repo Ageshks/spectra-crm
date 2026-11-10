@@ -103,12 +103,16 @@ export class BookingsService {
 
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new BadRequestException('Customer does not exist');
+    if (actor.role !== Role.SUPER_ADMIN && customer.companyId !== actor.companyId) {
+      throw new ForbiddenException('Customer is outside your company');
+    }
     if (actor.role === Role.CUSTOMER && customer.id !== actor.customerId) {
       throw new ForbiddenException('You cannot book for another customer');
     }
 
     const service = await this.prisma.service.findUnique({ where: { id: dto.serviceId } });
     if (!service) throw new BadRequestException('Service does not exist');
+    if (service.companyId !== customer.companyId) throw new BadRequestException('Service belongs to another company');
     if (!service.isActive) throw new BadRequestException('Service is not available');
 
     const address = await this.prisma.customerAddress.findFirst({
@@ -150,9 +154,11 @@ export class BookingsService {
     const booking = await this.prisma.booking.create({
       data: {
         bookingNumber,
+        companyId: customer.companyId,
         customerId,
         serviceId: dto.serviceId,
         serviceLocationId: dto.serviceLocationId,
+        baseServicePrice: service.basePrice,
         preferredDate,
         preferredTime: dto.preferredTime,
         remarks: dto.remarks,
@@ -172,7 +178,7 @@ export class BookingsService {
     });
 
     const staff = await this.prisma.user.findMany({
-      where: { role: { in: [Role.ADMIN, Role.SUPER_ADMIN, Role.MANAGER] }, isActive: true },
+      where: { role: { in: [Role.ADMIN, Role.SUPER_ADMIN, Role.MANAGER] }, isActive: true, companyId: customer.companyId },
       select: { id: true },
     });
     await this.notifications.notifyMany([
@@ -205,6 +211,7 @@ export class BookingsService {
       actor.role === Role.CUSTOMER ? actor.customerId : query.customerId;
 
     const where: Prisma.BookingWhereInput = {
+      ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }),
       ...(scopedCustomerId ? { customerId: scopedCustomerId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.serviceId ? { serviceId: query.serviceId } : {}),
@@ -247,6 +254,7 @@ export class BookingsService {
       include: bookingInclude,
     });
     if (!booking) throw new NotFoundException('Booking not found');
+    if (actor.role !== Role.SUPER_ADMIN && booking.companyId !== actor.companyId) throw new NotFoundException('Booking not found');
     if (actor.role === Role.CUSTOMER) {
       this.assertOwns(actor.customerId, booking.customerId);
     }
@@ -269,6 +277,7 @@ export class BookingsService {
       include: { customer: true },
     });
     if (!booking) throw new NotFoundException('Booking not found');
+    if (actor.role !== Role.SUPER_ADMIN && booking.companyId !== actor.companyId) throw new NotFoundException('Booking not found');
 
     if (actor.role === Role.CUSTOMER) {
       // Customers may only cancel their own bookings, and only early on.

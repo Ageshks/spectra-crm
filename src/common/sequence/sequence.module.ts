@@ -2,6 +2,7 @@ import { Global, Injectable, Module } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 
 const PAD = 6;
+const DEFAULT_COMPANY_ID = '00000000-0000-4000-8000-000000000001';
 
 /**
  * Concurrency-safe sequential document numbers (BOOK-2026-000001, ...).
@@ -17,18 +18,18 @@ export class SequenceService {
     const key = `SEQ_${prefix}_${year}`;
 
     await this.prisma.setting.upsert({
-      where: { key },
-      create: { key, value: '0', description: `Sequence counter for ${prefix}` },
+      where: { companyId_key: { companyId: DEFAULT_COMPANY_ID, key } },
+      create: { companyId: DEFAULT_COMPANY_ID, key, value: '0', description: `Sequence counter for ${prefix}` },
       update: {},
     });
 
     const value = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ value: string }>>`
-        SELECT value FROM "Setting" WHERE key = ${key} FOR UPDATE
+        SELECT value FROM "Setting" WHERE "companyId" = ${DEFAULT_COMPANY_ID} AND key = ${key} FOR UPDATE
       `;
       const current = Number(rows[0]?.value ?? '0') || 0;
       const nextValue = current + 1;
-      await tx.setting.update({ where: { key }, data: { value: String(nextValue) } });
+      await tx.setting.update({ where: { companyId_key: { companyId: DEFAULT_COMPANY_ID, key } }, data: { value: String(nextValue) } });
       return nextValue;
     });
 

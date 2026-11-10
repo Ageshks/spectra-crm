@@ -77,7 +77,11 @@ export class FcmService {
       });
 
       const invalidIndices = response.responses
-        .map((r, index) => (r.success ? -1 : index))
+        .map((r, index) => {
+          const code = r.error?.code;
+          return code === 'messaging/registration-token-not-registered' ||
+            code === 'messaging/invalid-registration-token' ? index : -1;
+        })
         .filter((index) => index >= 0);
       if (invalidIndices.length > 0) {
         await this.prisma.deviceToken.updateMany({

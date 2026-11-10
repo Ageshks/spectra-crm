@@ -1,8 +1,12 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { ToBoolean } from '../../../common/utils/transformers';
 
 export class CreateCategoryDto {
+  @IsOptional()
+  @IsUUID()
+  companyId?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
@@ -47,6 +51,10 @@ export class UpdateCategoryDto {
 }
 
 export class ListCategoriesDto extends PaginationDto {
+  @IsOptional()
+  @IsString()
+  companySlug?: string;
+
   @IsOptional()
   @ToBoolean()
   @IsBoolean()

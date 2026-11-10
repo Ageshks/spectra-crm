@@ -5,6 +5,7 @@ export interface AuthUser {
   email: string;
   role: Role;
   isActive: boolean;
+  companyId?: string;
   customerId?: string;
   employeeId?: string;
   managerId?: string;

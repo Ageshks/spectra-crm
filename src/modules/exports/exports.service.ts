@@ -74,6 +74,7 @@ export class ExportsService {
   async list(query: ListExportsDto, actor: AuthUser): Promise<unknown> {
     const { skip, take, page, limit } = normalizePagination(query);
     const where: Prisma.ExportJobWhereInput = {};
+    if (actor.role !== Role.SUPER_ADMIN) where.user = { companyId: actor.companyId ?? '__none__' };
     if (!this.isAdmin(actor) && actor.role !== Role.MANAGER) {
       where.userId = actor.id;
     }
@@ -93,7 +94,7 @@ export class ExportsService {
   }
 
   async get(id: string, actor: AuthUser): Promise<unknown> {
-    const job = await this.prisma.exportJob.findUnique({ where: { id } });
+    const job = await this.prisma.exportJob.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { user: { companyId: actor.companyId ?? '__none__' } }) } });
     if (!job) throw new NotFoundException('Export job not found');
     if (!this.canAccess(job, actor)) throw new ForbiddenException('Access denied');
     return job;
@@ -107,7 +108,7 @@ export class ExportsService {
   }
 
   async download(id: string, actor: AuthUser): Promise<{ absolutePath: string; filename: string; mimeType: string }> {
-    const job = await this.prisma.exportJob.findUnique({ where: { id } });
+    const job = await this.prisma.exportJob.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { user: { companyId: actor.companyId ?? '__none__' } }) } });
     if (!job) throw new NotFoundException('Export job not found');
     if (!this.canAccess(job, actor)) throw new ForbiddenException('Access denied');
     if (job.status !== ExportStatus.COMPLETED || !job.fileUrl) {
@@ -129,7 +130,7 @@ export class ExportsService {
     if (!this.isAdmin(actor)) {
       throw new ForbiddenException('Only admins can delete export jobs');
     }
-    const job = await this.prisma.exportJob.findUnique({ where: { id } });
+    const job = await this.prisma.exportJob.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { user: { companyId: actor.companyId ?? '__none__' } }) } });
     if (!job) throw new NotFoundException('Export job not found');
     if (job.fileUrl) await this.storage.remove(job.fileUrl);
     await this.prisma.exportJob.delete({ where: { id } });

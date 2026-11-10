@@ -11,6 +11,7 @@ import { normalizePagination, paginated, PaginatedResult, safeOrderBy } from '..
 import { pickUser, SafeUser } from '../../common/utils/user.util';
 import { hashPassword } from '../../common/utils/password.util';
 import { PrismaService } from '../../database/prisma.service';
+import { AuthUser } from '../../common/types/auth.types';
 import { CreateAdminUserDto, ListUsersDto, UpdateMeDto, UpdateUserStatusDto } from './dto/users.dto';
 
 @Injectable()
@@ -20,11 +21,16 @@ export class UsersService {
     private readonly audit: AuditService,
   ) {}
 
-  async createAdmin(dto: CreateAdminUserDto, actor: { id: string; role: Role }): Promise<SafeUser> {
+  async createAdmin(dto: CreateAdminUserDto, actor: AuthUser): Promise<SafeUser> {
     if (actor.role !== Role.ADMIN && actor.role !== Role.SUPER_ADMIN) {
       throw new ForbiddenException('Only admins can create admin accounts');
     }
     const email = dto.email.trim().toLowerCase();
+    const companyId = actor.role === Role.SUPER_ADMIN ? dto.companyId : actor.companyId;
+    if (!companyId) throw new BadRequestException('companyId is required to create an admin');
+    if (!await this.prisma.company.findFirst({ where: { id: companyId, isActive: true }, select: { id: true } })) {
+      throw new BadRequestException('Company does not exist or is inactive');
+    }
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException('An account with this email already exists');
     if (dto.phone) {
@@ -40,6 +46,7 @@ export class UsersService {
         phone: dto.phone,
         passwordHash: await hashPassword(dto.password),
         role: Role.ADMIN,
+        companyId,
         isVerified: true,
       },
     });
@@ -54,7 +61,7 @@ export class UsersService {
     return pickUser(user);
   }
 
-  async list(query: ListUsersDto, actor: { id: string; role: Role }): Promise<PaginatedResult<SafeUser>> {
+  async list(query: ListUsersDto, actor: AuthUser): Promise<PaginatedResult<SafeUser>> {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
     const where: Prisma.UserWhereInput = {
       ...(query.role ? { role: query.role } : {}),
@@ -70,6 +77,7 @@ export class UsersService {
           }
         : {}),
       ...(actor.role === Role.SUPER_ADMIN ? {} : { role: { not: Role.SUPER_ADMIN } }),
+      ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }),
     };
 
     const [items, total] = await this.prisma.$transaction([
@@ -90,7 +98,7 @@ export class UsersService {
     return paginated(items as SafeUser[], page, limit, total);
   }
 
-  async getById(id: string): Promise<SafeUser & Record<string, unknown>> {
+  async getById(id: string, actor?: AuthUser): Promise<SafeUser & Record<string, unknown>> {
     const user = await this.prisma.user.findUnique({
       where: { id },
       include: {
@@ -100,6 +108,9 @@ export class UsersService {
       },
     });
     if (!user) throw new NotFoundException('User not found');
+    if (actor && actor.role !== Role.SUPER_ADMIN && user.companyId !== actor.companyId) {
+      throw new ForbiddenException('User is outside your company');
+    }
     const { customer, employee, manager, ...safe } = user;
     return { ...pickUser(safe), customerId: customer?.id, employeeId: employee?.id, managerId: manager?.id };
   }
@@ -128,9 +139,12 @@ export class UsersService {
     return pickUser(updated);
   }
 
-  async updateStatus(id: string, dto: UpdateUserStatusDto, actor: { id: string; role: Role }): Promise<SafeUser> {
+  async updateStatus(id: string, dto: UpdateUserStatusDto, actor: AuthUser): Promise<SafeUser> {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
+    if (actor.role !== Role.SUPER_ADMIN && user.companyId !== actor.companyId) {
+      throw new ForbiddenException('User is outside your company');
+    }
     if (user.id === actor.id) throw new BadRequestException('You cannot change your own account status');
     if (user.role === Role.SUPER_ADMIN && actor.role !== Role.SUPER_ADMIN) {
       throw new ForbiddenException('Only a super admin can change a super admin account');

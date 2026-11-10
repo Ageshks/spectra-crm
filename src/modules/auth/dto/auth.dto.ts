@@ -13,6 +13,11 @@ const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 const PHONE_PATTERN = /^\+?[0-9][0-9\s\-]{6,14}[0-9]$/;
 
 export class RegisterDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  companySlug?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -61,9 +66,18 @@ export class ForgotPasswordDto {
 }
 
 export class ResetPasswordDto {
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  token!: string;
+  token?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @Matches(/^[0-9]{6}$/)
+  otp?: string;
 
   @IsString()
   @MinLength(PASSWORD_MIN_LENGTH)

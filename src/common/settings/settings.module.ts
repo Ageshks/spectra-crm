@@ -4,6 +4,8 @@ import { AppConfig } from '../../config/configuration';
 import { SETTING_KEYS } from '../constants';
 import { PrismaService } from '../../database/prisma.service';
 
+const DEFAULT_COMPANY_ID = '00000000-0000-4000-8000-000000000001';
+
 @Injectable()
 export class SettingsService implements OnModuleInit {
   private readonly cache = new Map<string, string>();
@@ -44,47 +46,50 @@ export class SettingsService implements OnModuleInit {
     try {
       const rows = await this.prisma.setting.findMany();
       for (const row of rows) {
-        this.cache.set(row.key, row.value);
+        this.cache.set(this.cacheKey(row.companyId, row.key), row.value);
       }
     } catch {
       // Settings fall back to env defaults when DB is unreachable at boot.
     }
   }
 
-  async get(key: string): Promise<string | undefined> {
-    if (this.cache.has(key)) return this.cache.get(key);
-    const row = await this.prisma.setting.findUnique({ where: { key } });
+  async get(key: string, companyId = DEFAULT_COMPANY_ID): Promise<string | undefined> {
+    const cacheKey = this.cacheKey(companyId, key);
+    if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
+    const row = await this.prisma.setting.findUnique({ where: { companyId_key: { companyId, key } } });
     if (row) {
-      this.cache.set(key, row.value);
+      this.cache.set(cacheKey, row.value);
       return row.value;
     }
     return this.envDefaults.get(key);
   }
 
-  async getString(key: string): Promise<string | undefined> {
-    return this.get(key);
+  async getString(key: string, companyId?: string): Promise<string | undefined> {
+    return this.get(key, companyId);
   }
 
-  async getBoolean(key: string, fallback = false): Promise<boolean> {
-    const value = await this.get(key);
+  async getBoolean(key: string, fallback = false, companyId?: string): Promise<boolean> {
+    const value = await this.get(key, companyId);
     if (value === undefined) return fallback;
     return value === 'true' || value === '1';
   }
 
-  async getNumber(key: string, fallback: number): Promise<number> {
-    const value = await this.get(key);
+  async getNumber(key: string, fallback: number, companyId?: string): Promise<number> {
+    const value = await this.get(key, companyId);
     const parsed = Number(value);
     return value !== undefined && Number.isFinite(parsed) ? parsed : fallback;
   }
 
-  async set(key: string, value: string, description?: string): Promise<void> {
+  async set(key: string, value: string, description?: string, companyId = DEFAULT_COMPANY_ID): Promise<void> {
     await this.prisma.setting.upsert({
-      where: { key },
-      create: { key, value, description },
+      where: { companyId_key: { companyId, key } },
+      create: { companyId, key, value, description },
       update: { value, description: description ?? undefined },
     });
-    this.cache.set(key, value);
+    this.cache.set(this.cacheKey(companyId, key), value);
   }
+
+  private cacheKey(companyId: string, key: string): string { return `${companyId}:${key}`; }
 
   async list(): Promise<Array<{ key: string; value: string; description: string | null }>> {
     const rows = await this.prisma.setting.findMany({ orderBy: { key: 'asc' } });

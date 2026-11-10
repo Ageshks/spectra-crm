@@ -89,6 +89,9 @@ export class WorkOrdersService {
       include: workOrderInclude,
     });
     if (!workOrder) throw new NotFoundException('Work order not found');
+    if (actor.role !== Role.SUPER_ADMIN && workOrder.companyId !== actor.companyId) {
+      throw new ForbiddenException('Work order is outside your company');
+    }
     if (actor.role === Role.CUSTOMER && workOrder.customerId !== actor.customerId) {
       throw new ForbiddenException('You are not allowed to access this work order');
     }
@@ -97,6 +100,9 @@ export class WorkOrdersService {
       if (!mine) {
         throw new ForbiddenException('You are not assigned to this work order');
       }
+    }
+    if (actor.role === Role.MANAGER && workOrder.managerId !== actor.managerId) {
+      throw new ForbiddenException('You are not authorized to access this work order');
     }
     return workOrder;
   }
@@ -108,6 +114,9 @@ export class WorkOrdersService {
   async createFromBooking(dto: CreateWorkOrderDto, actor: AuthUser): Promise<unknown> {
     const booking = await this.prisma.booking.findUnique({ where: { id: dto.bookingId } });
     if (!booking) throw new NotFoundException('Booking not found');
+    if (actor.role !== Role.SUPER_ADMIN && booking.companyId !== actor.companyId) {
+      throw new ForbiddenException('Booking is outside your company');
+    }
     if (
       booking.status !== BookingStatus.CONFIRMED &&
       booking.status !== BookingStatus.SCHEDULED
@@ -131,6 +140,7 @@ export class WorkOrdersService {
       if (!manager || !manager.user.isActive || manager.user.role !== Role.MANAGER) {
         throw new BadRequestException('Manager does not exist or is inactive');
       }
+      if (manager.companyId !== booking.companyId) throw new BadRequestException('Manager belongs to another company');
     }
 
     const employeeIds = [...new Set(dto.employeeIds ?? [])];
@@ -143,6 +153,9 @@ export class WorkOrdersService {
     if (employees.length !== employeeIds.length) {
       throw new BadRequestException('One or more selected employees do not exist');
     }
+    if (employees.some((employee) => employee.companyId !== booking.companyId)) {
+      throw new BadRequestException('All assigned employees must belong to the booking company');
+    }
     if (employees.some((employee) => !employee.user.isActive)) {
       throw new BadRequestException('Cannot assign a deactivated employee');
     }
@@ -152,6 +165,7 @@ export class WorkOrdersService {
       const created = await tx.workOrder.create({
         data: {
           workOrderNumber,
+          companyId: booking.companyId,
           bookingId: booking.id,
           customerId: booking.customerId,
           serviceId: booking.serviceId,
@@ -231,6 +245,7 @@ export class WorkOrdersService {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
 
     const and: Prisma.WorkOrderWhereInput[] = [];
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ companyId: actor.companyId ?? '__none__' });
     if (query.status) and.push({ status: query.status });
     if (query.priority) and.push({ priority: query.priority });
     if (query.customerId) and.push({ customerId: query.customerId });
@@ -254,9 +269,7 @@ export class WorkOrdersService {
       and.push({ assignments: { some: { employee: { userId: actor.id } } } });
     }
     if (actor.role === Role.MANAGER) {
-      and.push({
-        OR: [{ managerId: actor.managerId ?? '__none__' }, { managerId: null }],
-      });
+      and.push({ managerId: actor.managerId ?? '__none__' });
     }
 
     const where: Prisma.WorkOrderWhereInput = {
@@ -376,6 +389,7 @@ export class WorkOrdersService {
   async setManager(id: string, dto: SetManagerDto, actor: AuthUser): Promise<unknown> {
     const workOrder = await this.prisma.workOrder.findUnique({ where: { id } });
     if (!workOrder) throw new NotFoundException('Work order not found');
+    if (actor.role !== Role.SUPER_ADMIN && workOrder.companyId !== actor.companyId) throw new ForbiddenException('Work order is outside your company');
     const manager = await this.prisma.manager.findUnique({
       where: { id: dto.managerId },
       include: { user: { select: { isActive: true, role: true } } },
@@ -383,6 +397,7 @@ export class WorkOrdersService {
     if (!manager || !manager.user.isActive || manager.user.role !== Role.MANAGER) {
       throw new BadRequestException('Manager does not exist or is inactive');
     }
+    if (manager.companyId !== workOrder.companyId) throw new BadRequestException('Manager belongs to another company');
 
     const updated = await this.prisma.workOrder.update({
       where: { id },
@@ -410,8 +425,7 @@ export class WorkOrdersService {
   }
 
   async updatePriority(id: string, dto: UpdatePriorityDto, actor: AuthUser): Promise<unknown> {
-    const workOrder = await this.prisma.workOrder.findUnique({ where: { id } });
-    if (!workOrder) throw new NotFoundException('Work order not found');
+    const workOrder = await this.loadForActor(id, actor);
     const updated = await this.prisma.workOrder.update({
       where: { id },
       data: { priority: dto.priority },

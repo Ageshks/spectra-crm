@@ -43,9 +43,11 @@ export class EmployeesService {
     private readonly sequences: SequenceService,
   ) {}
 
-  async list(query: ListEmployeesDto): Promise<PaginatedResult<unknown>> {
+  async list(query: ListEmployeesDto, actor: AuthUser): Promise<PaginatedResult<unknown>> {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
     const where: Prisma.EmployeeWhereInput = {
+      companyId: actor.role === Role.SUPER_ADMIN ? undefined : actor.companyId ?? '__none__',
+      ...(actor.role === Role.MANAGER ? { assignments: { some: { workOrder: { managerId: actor.managerId ?? '__none__' } } } } : {}),
       ...(query.designation ? { designation: { equals: query.designation, mode: 'insensitive' } } : {}),
       ...(search
         ? {
@@ -80,6 +82,7 @@ export class EmployeesService {
     const employees = await this.prisma.employee.findMany({
       where: {
         id: { not: actor.employeeId },
+        companyId: actor.companyId ?? '__none__',
         user: { isActive: true },
         designationRecord: {
           is: { isActive: true, canUseFieldApp: true },
@@ -143,7 +146,14 @@ export class EmployeesService {
     });
   }
 
-  async create(dto: CreateEmployeeDto, actorId: string): Promise<unknown> {
+  async create(dto: CreateEmployeeDto, actor: AuthUser): Promise<unknown> {
+    const companyId = actor.role === Role.SUPER_ADMIN ? dto.companyId : actor.companyId;
+    if (!companyId || !await this.prisma.company.findFirst({ where: { id: companyId, isActive: true }, select: { id: true } })) {
+      throw new BadRequestException('An active company is required to create an employee');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && dto.companyId && dto.companyId !== actor.companyId) {
+      throw new ForbiddenException('You cannot create employees in another company');
+    }
     const email = dto.email.toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException('An account with this email already exists');
@@ -184,12 +194,14 @@ export class EmployeesService {
           phone: dto.phone,
           passwordHash,
           role: managerDesignation ? Role.MANAGER : Role.EMPLOYEE,
+          company: { connect: { id: companyId } },
           isVerified: true,
         },
       });
       const createdEmployee = await tx.employee.create({
         data: {
           employeeNo,
+          company: { connect: { id: companyId } },
           joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : undefined,
           designation,
           designationRecord: designationId ? { connect: { id: designationId } } : undefined,
@@ -200,7 +212,8 @@ export class EmployeesService {
       if (managerDesignation) {
         await tx.manager.create({
           data: {
-            userId: user.id,
+            user: { connect: { id: user.id } },
+            company: { connect: { id: companyId } },
             title: designation,
             joinedAt: dto.joiningDate ? new Date(dto.joiningDate) : new Date(),
           },
@@ -214,15 +227,15 @@ export class EmployeesService {
       module: 'employees',
       entity: 'Employee',
       entityId: employee.id,
-      userId: actorId,
+      userId: actor.id,
       newValues: { email, employeeNo },
     });
     return employee;
   }
 
-  async getById(id: string): Promise<unknown> {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id },
+  async getById(id: string, actor?: AuthUser): Promise<unknown> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { id, ...(actor && actor.role !== Role.SUPER_ADMIN ? { companyId: actor.companyId ?? '__none__' } : {}), ...(actor?.role === Role.MANAGER ? { assignments: { some: { workOrder: { managerId: actor.managerId ?? '__none__' } } } } : {}) },
       select: employeeSelect,
     });
     if (!employee) throw new NotFoundException('Employee not found');
@@ -238,9 +251,9 @@ export class EmployeesService {
     return employee;
   }
 
-  async update(id: string, dto: UpdateEmployeeDto, actorId: string): Promise<unknown> {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id },
+  async update(id: string, dto: UpdateEmployeeDto, actor: AuthUser): Promise<unknown> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) },
       include: { user: true },
     });
     if (!employee) throw new NotFoundException('Employee not found');
@@ -303,6 +316,7 @@ export class EmployeesService {
           where: { userId: employee.userId },
           create: {
             userId: employee.userId,
+            companyId: employee.companyId,
             title: targetDesignation,
             joinedAt: joiningDate ? new Date(joiningDate) : employee.joiningDate ?? new Date(),
           },
@@ -318,14 +332,14 @@ export class EmployeesService {
       module: 'employees',
       entity: 'Employee',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       newValues: dto as Prisma.InputJsonValue,
     });
-    return this.getById(id);
+    return this.getById(id, actor);
   }
 
-  async setStatus(id: string, isActive: boolean, actorId: string): Promise<unknown> {
-    const employee = await this.prisma.employee.findUnique({ where: { id } });
+  async setStatus(id: string, isActive: boolean, actor: AuthUser): Promise<unknown> {
+    const employee = await this.prisma.employee.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!employee) throw new NotFoundException('Employee not found');
     await this.prisma.user.update({
       where: { id: employee.userId },
@@ -336,10 +350,10 @@ export class EmployeesService {
       module: 'employees',
       entity: 'Employee',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       newValues: { isActive },
     });
-    return this.getById(id);
+    return this.getById(id, actor);
   }
 
   private isManagerDesignation(value: string | null | undefined): boolean {
@@ -349,9 +363,9 @@ export class EmployeesService {
   // ---------------------------------------------------------------
   // Employee-scoped operational views (admin / manager)
   // ---------------------------------------------------------------
-  async remove(id: string, actorId: string): Promise<unknown> {
-    const existing = await this.prisma.employee.findUnique({
-      where: { id },
+  async remove(id: string, actor: AuthUser): Promise<unknown> {
+    const existing = await this.prisma.employee.findFirst({
+      where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) },
       include: {
         _count: {
           select: {
@@ -387,7 +401,7 @@ export class EmployeesService {
         module: 'employees',
         entity: 'Employee',
         entityId: id,
-        userId: actorId,
+        userId: actor.id,
         oldValues: { isActive: true },
         newValues: { isActive: false },
       });
@@ -403,16 +417,27 @@ export class EmployeesService {
       module: 'employees',
       entity: 'Employee',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       oldValues: { employeeNo: existing.employeeNo },
     });
     return { id, deleted: true };
   }
 
 
-  async assignedWork(employeeId: string, query: { page?: number; limit?: number }): Promise<unknown> {
-    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+  private async assertEmployeeAccessible(employeeId: string, actor: AuthUser): Promise<void> {
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: employeeId,
+        ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }),
+        ...(actor.role === Role.MANAGER ? { assignments: { some: { workOrder: { managerId: actor.managerId ?? '__none__' } } } } : {}),
+      },
+      select: { id: true },
+    });
     if (!employee) throw new NotFoundException('Employee not found');
+  }
+
+  async assignedWork(employeeId: string, query: { page?: number; limit?: number }, actor: AuthUser): Promise<unknown> {
+    await this.assertEmployeeAccessible(employeeId, actor);
     const { skip, take, page, limit } = normalizePagination(query);
     const where: Prisma.WorkAssignmentWhereInput = { employeeId };
     const [items, total] = await this.prisma.$transaction([
@@ -436,7 +461,8 @@ export class EmployeesService {
     return paginated(items, page, limit, total);
   }
 
-  async attendance(employeeId: string, query: { page?: number; limit?: number; startDate?: string; endDate?: string }): Promise<unknown> {
+  async attendance(employeeId: string, query: { page?: number; limit?: number; startDate?: string; endDate?: string }, actor: AuthUser): Promise<unknown> {
+    await this.assertEmployeeAccessible(employeeId, actor);
     const { skip, take, page, limit } = normalizePagination(query);
     const where: Prisma.AttendanceWhereInput = {
       employeeId,
@@ -456,7 +482,8 @@ export class EmployeesService {
     return paginated(items, page, limit, total);
   }
 
-  async overtimes(employeeId: string, query: { page?: number; limit?: number }): Promise<unknown> {
+  async overtimes(employeeId: string, query: { page?: number; limit?: number }, actor: AuthUser): Promise<unknown> {
+    await this.assertEmployeeAccessible(employeeId, actor);
     const { skip, take, page, limit } = normalizePagination(query);
     const where: Prisma.OvertimeWhereInput = { employeeId };
     const [items, total] = await this.prisma.$transaction([
@@ -466,7 +493,8 @@ export class EmployeesService {
     return paginated(items, page, limit, total);
   }
 
-  async leaves(employeeId: string, query: { page?: number; limit?: number }): Promise<unknown> {
+  async leaves(employeeId: string, query: { page?: number; limit?: number }, actor: AuthUser): Promise<unknown> {
+    await this.assertEmployeeAccessible(employeeId, actor);
     const { skip, take, page, limit } = normalizePagination(query);
     const where: Prisma.LeaveWhereInput = { employeeId };
     const [items, total] = await this.prisma.$transaction([
@@ -476,7 +504,8 @@ export class EmployeesService {
     return paginated(items, page, limit, total);
   }
 
-  async reports(employeeId: string, query: { page?: number; limit?: number }): Promise<unknown> {
+  async reports(employeeId: string, query: { page?: number; limit?: number }, actor: AuthUser): Promise<unknown> {
+    await this.assertEmployeeAccessible(employeeId, actor);
     const { skip, take, page, limit } = normalizePagination(query);
     const where: Prisma.ServiceReportWhereInput = { employeeId };
     const [items, total] = await this.prisma.$transaction([

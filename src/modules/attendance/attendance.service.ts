@@ -9,7 +9,7 @@ import { AuditService } from '../../common/audit/audit.module';
 import { SETTING_KEYS } from '../../common/constants';
 import { SettingsService } from '../../common/settings/settings.module';
 import { AuthUser } from '../../common/types/auth.types';
-import { timeToMinutes, todayDateString } from '../../common/utils/date.util';
+import { minutesOfDayInTz, timeToMinutes, todayDateString } from '../../common/utils/date.util';
 import { isValidCoordinate } from '../../common/utils/geo.util';
 import {
   normalizePagination,
@@ -24,6 +24,7 @@ export const attendanceInclude = {
   employee: {
     select: {
       id: true,
+      companyId: true,
       employeeNo: true,
       user: { select: { id: true, firstName: true, lastName: true } },
     },
@@ -31,6 +32,7 @@ export const attendanceInclude = {
   manager: {
     select: {
       id: true,
+      companyId: true,
       title: true,
       user: { select: { id: true, firstName: true, lastName: true } },
     },
@@ -91,10 +93,10 @@ export class AttendanceService {
   async checkIn(dto: CheckInDto, actor: AuthUser): Promise<unknown> {
     const staff = await this.resolveStaff(actor);
     const now = new Date();
-    if (!(await this.workingCalendar.isWorkingDate(todayDateString(now)))) {
+    if (!(await this.workingCalendar.isWorkingDate(todayDateString(now), actor.companyId))) {
       throw new BadRequestException('Today is marked as a non-working day in the working calendar');
     }
-    const gpsEnabled = await this.settings.getBoolean(SETTING_KEYS.GPS_ATTENDANCE_ENABLED, false);
+    const gpsEnabled = await this.settings.getBoolean(SETTING_KEYS.GPS_ATTENDANCE_ENABLED, false, actor.companyId);
     if (gpsEnabled && !isValidCoordinate(dto.latitude, dto.longitude)) {
       throw new BadRequestException('Valid latitude and longitude are required');
     }
@@ -108,10 +110,10 @@ export class AttendanceService {
     if (existing?.checkInTime) {
       throw new BadRequestException('You have already checked in today');
     }
-    const workStart = (await this.settings.getString(SETTING_KEYS.WORK_START_TIME)) ?? '09:00';
-    const lateThreshold = await this.settings.getNumber(SETTING_KEYS.LATE_THRESHOLD_MINUTES, 15);
+    const workStart = (await this.settings.getString(SETTING_KEYS.WORK_START_TIME, actor.companyId)) ?? '09:00';
+    const lateThreshold = await this.settings.getNumber(SETTING_KEYS.LATE_THRESHOLD_MINUTES, 15, actor.companyId);
     const lateCutoff = timeToMinutes(workStart) + lateThreshold;
-    const mins = now.getHours() * 60 + now.getMinutes();
+    const mins = minutesOfDayInTz(now);
     const status = mins > lateCutoff ? AttendanceStatus.LATE : AttendanceStatus.PRESENT;
     const base = {
       checkInTime: now,
@@ -135,7 +137,7 @@ export class AttendanceService {
 
   async checkOut(dto: CheckOutDto, actor: AuthUser): Promise<unknown> {
     const staff = await this.resolveStaff(actor);
-    const gpsEnabled = await this.settings.getBoolean(SETTING_KEYS.GPS_ATTENDANCE_ENABLED, false);
+    const gpsEnabled = await this.settings.getBoolean(SETTING_KEYS.GPS_ATTENDANCE_ENABLED, false, actor.companyId);
     if (gpsEnabled && !isValidCoordinate(dto.latitude, dto.longitude)) {
       throw new BadRequestException('Valid latitude and longitude are required');
     }
@@ -156,7 +158,7 @@ export class AttendanceService {
       throw new BadRequestException('Check-out cannot be before check-in');
     }
     const workingMinutes = Math.floor((now.getTime() - record.checkInTime.getTime()) / 60000);
-    const minHalfDay = await this.settings.getNumber(SETTING_KEYS.MIN_HALF_DAY_MINUTES, 240);
+    const minHalfDay = await this.settings.getNumber(SETTING_KEYS.MIN_HALF_DAY_MINUTES, 240, actor.companyId);
     const status = workingMinutes < minHalfDay ? AttendanceStatus.HALF_DAY : record.status;
     const updated = await this.prisma.attendance.update({
       where: { id: record.id },
@@ -189,11 +191,23 @@ export class AttendanceService {
   async list(query: ListAttendanceDto, actor: AuthUser) {
     const { skip, take, page, limit, sortBy, sortOrder } = normalizePagination(query);
     const and: Prisma.AttendanceWhereInput[] = [];
-    if (actor.role === Role.EMPLOYEE || actor.role === Role.MANAGER) {
+    if (actor.role === Role.EMPLOYEE) {
       and.push(await this.resolveStaff(actor));
+    } else if (actor.role === Role.MANAGER) {
+      const manager = await this.resolveStaff(actor);
+      if (!('managerId' in manager)) throw new ForbiddenException('Manager profile not found');
+      and.push({
+        OR: [
+          { managerId: manager.managerId },
+          { employee: { assignments: { some: { workOrder: { managerId: manager.managerId } } } } },
+        ],
+      });
     } else {
       if (query.employeeId) and.push({ employeeId: query.employeeId });
       if (query.managerId) and.push({ managerId: query.managerId });
+      if (actor.role !== Role.SUPER_ADMIN) {
+        and.push({ OR: [{ employee: { companyId: actor.companyId ?? '__none__' } }, { manager: { companyId: actor.companyId ?? '__none__' } }] });
+      }
     }
     if (query.status) and.push({ status: query.status });
     if (query.dateFrom || query.dateTo) {
@@ -219,11 +233,19 @@ export class AttendanceService {
   async getById(id: string, actor: AuthUser): Promise<unknown> {
     const record = await this.prisma.attendance.findUnique({ where: { id }, include: attendanceInclude });
     if (!record) throw new NotFoundException('Attendance record not found');
-    if (actor.role === Role.EMPLOYEE || actor.role === Role.MANAGER) {
+    if (actor.role === Role.EMPLOYEE) {
+      const employeeId = await this.resolveEmployeeId(actor);
+      if (record.employeeId !== employeeId) throw new ForbiddenException('You cannot access another staff attendance record');
+    } else if (actor.role === Role.MANAGER) {
       const staff = await this.resolveStaff(actor);
-      const ownerId = 'employeeId' in staff ? record.employeeId : record.managerId;
-      const staffId = 'employeeId' in staff ? staff.employeeId : staff.managerId;
-      if (ownerId !== staffId) throw new ForbiddenException('You cannot access another staff attendance record');
+      if (!('managerId' in staff)) throw new ForbiddenException('Manager profile not found');
+      const inTeam = record.managerId === staff.managerId || (record.employeeId !== null && !!await this.prisma.workAssignment.findFirst({
+        where: { employeeId: record.employeeId, workOrder: { managerId: staff.managerId } },
+        select: { id: true },
+      }));
+      if (!inTeam) throw new ForbiddenException('You cannot access attendance outside your team');
+    } else if (actor.role !== Role.SUPER_ADMIN && record.employee?.companyId !== actor.companyId && record.manager?.companyId !== actor.companyId) {
+      throw new ForbiddenException('Attendance record is outside your company');
     }
     return attendanceResponse(record);
   }

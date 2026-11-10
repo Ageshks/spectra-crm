@@ -32,15 +32,15 @@ export class ServiceCategoriesController {
   @ApiOperation({ summary: 'Create a service category' })
   @ResponseMessage('Category created')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCategoryDto) {
-    return this.categories.create(dto, user.id);
+    return this.categories.create(dto, user);
   }
 
   @Get(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Get a category' })
   @ResponseMessage('Category retrieved')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.categories.getById(id);
+  get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.categories.getById(id, user);
   }
 
   @Patch(':id')
@@ -53,7 +53,7 @@ export class ServiceCategoriesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCategoryDto,
   ) {
-    return this.categories.update(id, dto, user.id);
+    return this.categories.update(id, dto, user);
   }
 
   @Delete(':id')
@@ -62,6 +62,6 @@ export class ServiceCategoriesController {
   @ApiOperation({ summary: 'Deactivate a category (soft delete)' })
   @ResponseMessage('Category deactivated')
   remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.categories.deactivate(id, user.id);
+    return this.categories.deactivate(id, user);
   }
 }

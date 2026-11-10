@@ -63,6 +63,10 @@ export class WorkAssignmentsService {
       where: { id: dto.workOrderId },
     });
     if (!workOrder) throw new NotFoundException('Work order not found');
+    if (actor.role !== Role.SUPER_ADMIN && workOrder.companyId !== actor.companyId) throw new ForbiddenException('Work order is outside your company');
+    if (actor.role === Role.MANAGER && workOrder.managerId !== actor.managerId) {
+      throw new ForbiddenException('You can only assign work orders managed by you');
+    }
     if (
       workOrder.status === WorkOrderStatus.COMPLETED ||
       workOrder.status === WorkOrderStatus.APPROVED ||
@@ -72,7 +76,7 @@ export class WorkAssignmentsService {
     }
 
     const employees = await this.prisma.employee.findMany({
-      where: { id: { in: dto.employeeIds } },
+      where: { id: { in: dto.employeeIds }, companyId: workOrder.companyId },
       include: { user: { select: { id: true, isActive: true } } },
     });
     if (employees.length !== new Set(dto.employeeIds).size) {
@@ -172,6 +176,10 @@ export class WorkAssignmentsService {
       if (!actor.employeeId) throw new ForbiddenException('Employee profile not found');
       and.push({ employeeId: actor.employeeId });
     }
+    if (actor.role === Role.MANAGER) {
+      and.push({ workOrder: { managerId: actor.managerId ?? '__none__' } });
+    }
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ workOrder: { companyId: actor.companyId ?? '__none__' } });
 
     const where: Prisma.WorkAssignmentWhereInput = {
       ...(and.length ? { AND: and } : {}),
@@ -223,6 +231,10 @@ export class WorkAssignmentsService {
     if (actor.role === Role.EMPLOYEE && assignment.employeeId !== actor.employeeId) {
       throw new ForbiddenException('This assignment does not belong to you');
     }
+    if (actor.role === Role.MANAGER && assignment.workOrder.managerId !== actor.managerId) {
+      throw new ForbiddenException('You are not authorized to manage this assignment');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && assignment.workOrder.companyId !== actor.companyId) throw new ForbiddenException('Assignment is outside your company');
     return assignment;
   }
 
@@ -404,6 +416,10 @@ export class WorkAssignmentsService {
       include: assignmentInclude,
     });
     if (!assignment) throw new NotFoundException('Assignment not found');
+    if (actor.role !== Role.SUPER_ADMIN && assignment.workOrder.companyId !== actor.companyId) throw new ForbiddenException('Assignment is outside your company');
+    if (actor.role === Role.MANAGER && assignment.workOrder.managerId !== actor.managerId) {
+      throw new ForbiddenException('You are not authorized to cancel this assignment');
+    }
     if (
       assignment.status === WorkAssignmentStatus.COMPLETED ||
       assignment.status === WorkAssignmentStatus.CANCELLED

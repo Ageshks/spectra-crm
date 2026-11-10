@@ -30,12 +30,13 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
+        company: { select: { isActive: true } },
         customer: { select: { id: true } },
         employee: { select: { id: true } },
         manager: { select: { id: true } },
       },
     });
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || (user.companyId && !user.company?.isActive)) {
       throw new UnauthorizedException('Account is unavailable');
     }
     return {
@@ -43,6 +44,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       email: user.email,
       role: user.role,
       isActive: user.isActive,
+      companyId: user.companyId ?? undefined,
       customerId: user.customer?.id,
       employeeId: user.employee?.id,
       managerId: user.manager?.id,

@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 import { Role } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { ToBoolean } from '../../../common/utils/transformers';
@@ -7,6 +7,10 @@ import { PASSWORD_MIN_LENGTH } from '../../../common/constants';
 const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 
 export class CreateAdminUserDto {
+  @IsOptional()
+  @IsUUID()
+  companyId?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)

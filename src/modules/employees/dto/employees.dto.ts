@@ -16,6 +16,10 @@ import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateEmployeeDto {
   @IsOptional()
+  @IsUUID()
+  companyId?: string;
+
+  @IsOptional()
   @IsIn(['SGPLEMP', 'SGPL/NAPS/', 'SGPLTEMP'])
   employeeIdFormat?: 'SGPLEMP' | 'SGPL/NAPS/' | 'SGPLTEMP';
 

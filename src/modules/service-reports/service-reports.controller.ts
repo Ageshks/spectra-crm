@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -15,6 +16,7 @@ import { ResponseMessage } from '../../common/decorators/response-message.decora
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthUser } from '../../common/types/auth.types';
 import {
+  CreateReportLocationDto,
   CreateServiceReportDto,
   ListServiceReportsDto,
   ReportDecisionDto,
@@ -62,6 +64,28 @@ export class ServiceReportsController {
     @Body() dto: UpdateServiceReportDto,
   ) {
     return this.reports.update(id, dto, user);
+  }
+
+  @Delete(':id')
+  @Roles(Role.EMPLOYEE)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOperation({ summary: 'Delete an owned draft report' })
+  @ResponseMessage('Draft report deleted')
+  deleteDraft(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.reports.deleteDraft(id, user);
+  }
+
+  @Post(':id/locations')
+  @Roles(Role.EMPLOYEE)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOperation({ summary: 'Record a GPS point for an owned service report' })
+  @ResponseMessage('Report location recorded')
+  addLocation(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateReportLocationDto,
+  ) {
+    return this.reports.addLocation(id, dto, user);
   }
 
   @Post(':id/submit')

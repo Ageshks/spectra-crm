@@ -47,6 +47,11 @@ export class CreateAddressDto {
   pincode!: string;
 
   @IsOptional()
+  @IsString()
+  @Matches(/^[0-9]{2}$/)
+  gstStateCode?: string;
+
+  @IsOptional()
   @IsNumber({}, { message: 'latitude must be a number between -90 and 90' })
   latitude?: number;
 
@@ -111,6 +116,11 @@ export class UpdateAddressDto {
   pincode?: string;
 
   @IsOptional()
+  @IsString()
+  @Matches(/^[0-9]{2}$/)
+  gstStateCode?: string;
+
+  @IsOptional()
   @IsNumber()
   latitude?: number;
 
@@ -149,6 +159,16 @@ export class UpdateCustomerDto {
   lastName?: string;
 
   @IsOptional()
+  @IsString()
+  @Matches(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, { message: 'email must be a valid email address' })
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  organizationName?: string;
+
+  @IsOptional()
   @Matches(PHONE_PATTERN, { message: 'phone must be a valid phone number' })
   phone?: string;
 
@@ -159,6 +179,10 @@ export class UpdateCustomerDto {
 }
 
 export class CreateCustomerDto {
+  @IsOptional()
+  @IsUUID()
+  companyId?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -186,6 +210,11 @@ export class CreateCustomerDto {
   @IsString()
   @MaxLength(1000)
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  organizationName?: string;
 
   @IsOptional()
   address?: CreateAddressDto;

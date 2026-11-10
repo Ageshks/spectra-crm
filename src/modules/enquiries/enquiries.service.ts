@@ -24,6 +24,7 @@ import {
 } from '../../common/utils/pagination.util';
 import { SequenceService } from '../../common/sequence/sequence.module';
 import { PrismaService } from '../../database/prisma.service';
+import { AuthUser } from '../../common/types/auth.types';
 import {
   AssignEnquiryDto,
   CreateEnquiryDto,
@@ -97,8 +98,13 @@ export class EnquiriesService {
 
   async create(
     dto: CreateEnquiryDto,
-    actor: { id: string; role: Role; customerId?: string },
+    actor: { id: string; role: Role; customerId?: string; companyId?: string },
   ): Promise<unknown> {
+    const company = actor.companyId
+      ? await this.prisma.company.findFirst({ where: { id: actor.companyId, isActive: true }, select: { id: true } })
+      : await this.prisma.company.findFirst({ where: { slug: dto.companySlug?.trim().toLowerCase() || 'default', isActive: true }, select: { id: true } });
+    if (!company) throw new BadRequestException('Company is unavailable');
+    const companyId = company.id;
     let customerId = actor.role === Role.CUSTOMER ? actor.customerId : dto.customerId;
     if (actor.role === Role.CUSTOMER && dto.customerId && dto.customerId !== actor.customerId) {
       throw new ForbiddenException('You cannot create an enquiry for another customer');
@@ -106,10 +112,12 @@ export class EnquiriesService {
     if (customerId) {
       const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
       if (!customer) throw new BadRequestException('Customer does not exist');
+      if (customer.companyId !== companyId) throw new ForbiddenException('Customer is outside this company');
     }
     if (dto.serviceId) {
       const service = await this.prisma.service.findUnique({ where: { id: dto.serviceId } });
       if (!service) throw new BadRequestException('Service does not exist');
+      if (service.companyId !== companyId) throw new BadRequestException('Service is outside this company');
     }
     if (dto.serviceLocationId) {
       const address = await this.prisma.customerAddress.findUnique({
@@ -128,6 +136,7 @@ export class EnquiriesService {
     const enquiryNumber = await this.sequences.next('ENQ');
     const enquiry = await this.prisma.enquiry.create({
       data: {
+        companyId,
         enquiryNumber,
         customerId,
         name: dto.name,
@@ -151,7 +160,7 @@ export class EnquiriesService {
 
     // Alert active admins and managers about every new enquiry.
     const recipients = await this.prisma.user.findMany({
-      where: { role: { in: [Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN] }, isActive: true },
+      where: { role: { in: [Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN] }, isActive: true, companyId },
       select: { id: true },
     });
     await this.notifications.notifyMany(
@@ -168,13 +177,14 @@ export class EnquiriesService {
     return enquiry;
   }
 
-  async list(query: ListEnquiriesDto, actor: { id: string; role: Role }): Promise<PaginatedResult<unknown>> {
+  async list(query: ListEnquiriesDto, actor: AuthUser): Promise<PaginatedResult<unknown>> {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
     const scopeFilter =
       actor.role === Role.MANAGER
-        ? { OR: [{ assignedManagerId: actor.id }, { assignedManagerId: null }] }
+        ? { OR: [{ assignedManagerId: actor.managerId ?? '__none__' }, { assignedManagerId: null }] }
         : {};
     const where: Prisma.EnquiryWhereInput = {
+      ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }),
       ...(query.status ? { status: query.status } : {}),
       ...(query.assignedManagerId ? { assignedManagerId: query.assignedManagerId } : {}),
       ...scopeFilter,
@@ -203,21 +213,23 @@ export class EnquiriesService {
     return paginated(items, page, limit, total);
   }
 
-  async getById(id: string): Promise<unknown> {
+  async getById(id: string, actor?: AuthUser): Promise<unknown> {
     const enquiry = await this.prisma.enquiry.findUnique({
       where: { id },
       include: enquiryInclude,
     });
     if (!enquiry) throw new NotFoundException('Enquiry not found');
+    if (actor && actor.role !== Role.SUPER_ADMIN && enquiry.companyId !== actor.companyId) throw new NotFoundException('Enquiry not found');
     return enquiry;
   }
 
-  async assign(id: string, dto: AssignEnquiryDto, actorId: string): Promise<unknown> {
-    const enquiry = await this.prisma.enquiry.findUnique({ where: { id } });
+  async assign(id: string, dto: AssignEnquiryDto, actor: AuthUser): Promise<unknown> {
+    const enquiry = await this.prisma.enquiry.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!enquiry) throw new NotFoundException('Enquiry not found');
 
     const manager = await this.prisma.manager.findUnique({ where: { id: dto.managerId } });
     if (!manager) throw new BadRequestException('Manager does not exist');
+    if (manager.companyId !== enquiry.companyId) throw new BadRequestException('Manager belongs to another company');
 
     const updated = await this.prisma.enquiry.update({
       where: { id },
@@ -237,7 +249,7 @@ export class EnquiriesService {
       module: 'enquiries',
       entity: 'Enquiry',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       oldValues: { assignedManagerId: enquiry.assignedManagerId },
       newValues: { assignedManagerId: manager.id },
     });
@@ -253,8 +265,8 @@ export class EnquiriesService {
     CANCELLED: [],
   };
 
-  async updateStatus(id: string, dto: UpdateEnquiryStatusDto, actorId: string): Promise<unknown> {
-    const enquiry = await this.prisma.enquiry.findUnique({ where: { id } });
+  async updateStatus(id: string, dto: UpdateEnquiryStatusDto, actor: AuthUser): Promise<unknown> {
+    const enquiry = await this.prisma.enquiry.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!enquiry) throw new NotFoundException('Enquiry not found');
     if (dto.status === EnquiryStatus.CONVERTED) {
       throw new BadRequestException('Use the convert endpoint to convert an enquiry');
@@ -274,7 +286,7 @@ export class EnquiriesService {
       module: 'enquiries',
       entity: 'Enquiry',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       oldValues: { status: enquiry.status },
       newValues: { status: dto.status, note: dto.note },
     });
@@ -303,10 +315,12 @@ export class EnquiriesService {
       instructions?: string;
       serviceNotes?: string;
     },
-    actorId: string,
+    actor: AuthUser,
   ): Promise<unknown> {
     const enquiry = await this.prisma.enquiry.findUnique({ where: { id } });
     if (!enquiry) throw new NotFoundException('Enquiry not found');
+    if (actor.role !== Role.SUPER_ADMIN && enquiry.companyId !== actor.companyId) throw new NotFoundException('Enquiry not found');
+    const actorId = actor.id;
     if (enquiry.convertedBookingId) {
       throw new BadRequestException('Enquiry has already been converted');
     }
@@ -383,10 +397,12 @@ export class EnquiriesService {
     const result = await this.prisma.$transaction(async (tx) => {
       const createdBooking = await tx.booking.create({
         data: {
+          companyId: enquiry.companyId,
           bookingNumber,
           customerId,
           serviceId,
           serviceLocationId,
+          baseServicePrice: service.basePrice,
           preferredDate,
           preferredTime: dto.preferredTime,
           remarks: dto.remarks ?? enquiry.message ?? undefined,
@@ -399,6 +415,7 @@ export class EnquiriesService {
       if (createWorkOrder && workOrderNumber) {
         const createdWorkOrder = await tx.workOrder.create({
           data: {
+            companyId: enquiry.companyId,
             workOrderNumber,
             bookingId: createdBooking.id,
             customerId,

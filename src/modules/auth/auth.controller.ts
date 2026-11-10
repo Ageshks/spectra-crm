@@ -79,8 +79,8 @@ export class AuthController {
   @Post('forgot-password')
   @HttpCode(200)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Request a password reset token' })
-  @ResponseMessage('If the email exists, a reset link has been issued')
+  @ApiOperation({ summary: 'Request a six-digit password reset code by email' })
+  @ResponseMessage('If the email exists, a password reset code has been sent')
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.auth.forgotPassword(dto);
   }
@@ -89,7 +89,7 @@ export class AuthController {
   @Post('reset-password')
   @HttpCode(200)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Reset password using a reset token' })
+  @ApiOperation({ summary: 'Reset password using the emailed OTP (legacy reset tokens are also accepted)' })
   @ResponseMessage('Password has been reset')
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPassword(dto);

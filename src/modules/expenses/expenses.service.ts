@@ -38,6 +38,8 @@ export class ExpensesService {
 
   async submit(dto: CreateExpenseDto, actor: AuthUser): Promise<unknown> {
     const employeeId = await this.attendance.resolveEmployeeId(actor);
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId }, select: { companyId: true } });
+    if (!employee || (actor.role !== Role.SUPER_ADMIN && employee.companyId !== actor.companyId)) throw new ForbiddenException('Employee is outside your company');
     const expenseDate = new Date(`${dto.expenseDate.slice(0, 10)}T00:00:00.000Z`);
     const expense = await this.prisma.expense.create({
       data: {
@@ -69,8 +71,12 @@ export class ExpensesService {
   async list(query: ListExpensesDto, actor: AuthUser): Promise<PaginatedResult<unknown>> {
     const { skip, take, page, limit, sortBy, sortOrder } = normalizePagination(query);
     const and: Prisma.ExpenseWhereInput[] = [];
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ employee: { companyId: actor.companyId ?? '__none__' } });
     if (actor.role === Role.EMPLOYEE) {
       and.push({ employeeId: await this.attendance.resolveEmployeeId(actor) });
+    }
+    if (actor.role === Role.MANAGER) {
+      and.push({ employee: { assignments: { some: { workOrder: { managerId: actor.managerId ?? '__none__' } } } } });
     }
     if (query.status) and.push({ status: query.status });
     if (query.dateFrom || query.dateTo) {
@@ -104,10 +110,20 @@ export class ExpensesService {
         throw new ForbiddenException('You cannot access another employee expense');
       }
     }
+    if (actor.role === Role.MANAGER && !await this.isInManagerTeam(expense.employeeId, actor.managerId)) {
+      throw new ForbiddenException('You are not authorized to access this expense');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && (await this.prisma.employee.findUnique({ where: { id: expense.employeeId }, select: { companyId: true } }))?.companyId !== actor.companyId) throw new ForbiddenException('Expense is outside your company');
     return expense;
   }
 
   async decide(id: string, dto: ExpenseDecisionDto, actor: AuthUser): Promise<unknown> {
+    const existing = await this.prisma.expense.findUnique({ where: { id }, select: { employeeId: true } });
+    if (!existing) throw new NotFoundException('Expense not found');
+    if (actor.role === Role.MANAGER && !await this.isInManagerTeam(existing.employeeId, actor.managerId)) {
+      throw new ForbiddenException('You are not authorized to decide this expense');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && (await this.prisma.employee.findUnique({ where: { id: existing.employeeId }, select: { companyId: true } }))?.companyId !== actor.companyId) throw new ForbiddenException('Expense is outside your company');
     const result = await this.prisma.expense.updateMany({
       where: { id, status: ExpenseStatus.PENDING },
       data: {
@@ -131,5 +147,14 @@ export class ExpensesService {
       newValues: { decision: dto.decision, note: dto.note } as Prisma.InputJsonValue,
     });
     return this.prisma.expense.findUnique({ where: { id }, include: expenseInclude });
+  }
+
+  private async isInManagerTeam(employeeId: string, managerId?: string): Promise<boolean> {
+    if (!managerId) return false;
+    const assignment = await this.prisma.workAssignment.findFirst({
+      where: { employeeId, workOrder: { managerId } },
+      select: { id: true },
+    });
+    return !!assignment;
   }
 }

@@ -48,10 +48,11 @@ export class WorkPhotosService {
       include: { assignments: { select: { employee: { select: { userId: true } } } } },
     });
     if (!workOrder) throw new NotFoundException('Work order not found');
+    if (actor.role !== Role.SUPER_ADMIN && actor.companyId !== workOrder.companyId) throw new ForbiddenException('Work order is outside your company');
     if (actor.role === Role.SUPER_ADMIN || actor.role === Role.ADMIN) return;
     if (actor.role === Role.MANAGER) {
-      if (workOrder.managerId && actor.managerId && workOrder.managerId !== actor.managerId) {
-        throw new ForbiddenException('This work order is managed by someone else');
+      if (!actor.managerId || workOrder.managerId !== actor.managerId) {
+        throw new ForbiddenException('You are not authorized to access this work order');
       }
       return;
     }
@@ -79,6 +80,16 @@ export class WorkPhotosService {
       if (report.workOrderId !== dto.workOrderId) {
         throw new BadRequestException('Service report belongs to a different work order');
       }
+      if (report.status !== 'DRAFT' && report.status !== 'CORRECTION_REQUIRED') {
+        throw new BadRequestException('Photos can only be added to a draft or correction-required report');
+      }
+      if (actor.role === Role.EMPLOYEE) {
+        const owned = await this.prisma.serviceReport.findFirst({
+          where: { id: report.id, employee: { userId: actor.id } },
+          select: { id: true },
+        });
+        if (!owned) throw new ForbiddenException('This report does not belong to you');
+      }
     }
     const uploaded = await this.cloudinary.uploadImage(file, 'spectra/work-photos');
     const photo = await this.prisma.workPhoto.create({
@@ -103,6 +114,24 @@ export class WorkPhotosService {
     return photo;
   }
 
+  async uploadMany(
+    files: Express.Multer.File[] | undefined,
+    dto: UploadWorkPhotoDto,
+    actor: AuthUser,
+  ): Promise<{ uploaded: unknown[]; failures: Array<{ index: number; message: string }> }> {
+    if (!files?.length) throw new BadRequestException('At least one photo is required (field "photos")');
+    const uploaded: unknown[] = [];
+    const failures: Array<{ index: number; message: string }> = [];
+    for (const [index, file] of files.entries()) {
+      try {
+        uploaded.push(await this.upload(file, dto, actor));
+      } catch (error) {
+        failures.push({ index, message: error instanceof Error ? error.message : 'Photo upload failed' });
+      }
+    }
+    return { uploaded, failures };
+  }
+
   async list(query: ListWorkPhotosDto, actor: AuthUser): Promise<PaginatedResult<unknown>> {
     const { skip, take, page, limit, sortBy, sortOrder } = normalizePagination(query);
     const and: Prisma.WorkPhotoWhereInput[] = [];
@@ -115,6 +144,10 @@ export class WorkPhotosService {
     if (actor.role === Role.EMPLOYEE) {
       and.push({ workOrder: { assignments: { some: { employee: { userId: actor.id } } } } });
     }
+    if (actor.role === Role.MANAGER) {
+      and.push({ workOrder: { managerId: actor.managerId ?? '__none__' } });
+    }
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ workOrder: { companyId: actor.companyId ?? '__none__' } });
     const where: Prisma.WorkPhotoWhereInput = and.length ? { AND: and } : {};
     const [items, total] = await this.prisma.$transaction([
       this.prisma.workPhoto.findMany({

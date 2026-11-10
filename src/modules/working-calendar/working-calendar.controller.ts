@@ -10,20 +10,21 @@ import { WorkingCalendarService } from './working-calendar.service';
 
 @ApiTags('working-calendar')
 @ApiBearerAuth()
-@Roles(Role.ADMIN, Role.SUPER_ADMIN)
 @Controller('working-calendar')
 export class WorkingCalendarController {
   constructor(private readonly calendar: WorkingCalendarService) {}
 
   @Get(':year')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.MANAGER, Role.EMPLOYEE)
   @ApiParam({ name: 'year', example: 2026 })
   @ApiOperation({ summary: 'Get the working calendar for a year' })
   @ResponseMessage('Working calendar retrieved')
-  get(@Param('year', ParseIntPipe) year: number) {
-    return this.calendar.get(year);
+  get(@Param('year', ParseIntPipe) year: number, @CurrentUser() actor: AuthUser) {
+    return this.calendar.get(year, actor.companyId);
   }
 
   @Put(':year')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @ApiParam({ name: 'year', example: 2026 })
   @ApiOperation({ summary: 'Save working days, holidays, and calendar events' })
   @ResponseMessage('Working calendar saved')

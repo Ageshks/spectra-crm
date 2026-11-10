@@ -17,8 +17,8 @@ export class DashboardController {
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Admin overview: customers, bookings, work orders, maintenance, workforce' })
   @ResponseMessage('Admin dashboard retrieved')
-  admin() {
-    return this.dashboard.admin();
+  admin(@CurrentUser() user: AuthUser) {
+    return this.dashboard.admin(user);
   }
 
   @Get('manager')

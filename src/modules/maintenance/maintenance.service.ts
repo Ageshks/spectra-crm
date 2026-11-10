@@ -51,8 +51,11 @@ export class MaintenanceService {
 
   async create(dto: CreateMaintenanceDto, actor: AuthUser): Promise<unknown> {
     const customerId = this.assertCustomer(dto, actor);
+    const customer = await this.prisma.customer.findFirst({ where: { id: customerId, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) }, select: { id: true } });
+    if (!customer) throw new BadRequestException('Customer does not belong to your company');
     const service = await this.prisma.service.findUnique({ where: { id: dto.serviceId } });
     if (!service) throw new BadRequestException('Service does not exist');
+    if (actor.role !== Role.SUPER_ADMIN && service.companyId !== actor.companyId) throw new BadRequestException('Service does not belong to your company');
     const address = await this.prisma.customerAddress.findFirst({
       where: { id: dto.serviceLocationId, customerId },
     });
@@ -90,6 +93,7 @@ export class MaintenanceService {
     if (actor.role === Role.CUSTOMER) {
       and.push({ customerId: actor.customerId ?? '__none__' });
     } else {
+      if (actor.role !== Role.SUPER_ADMIN) and.push({ customer: { companyId: actor.companyId ?? '__none__' } });
       if (query.customerId) and.push({ customerId: query.customerId });
       if (query.serviceId) and.push({ serviceId: query.serviceId });
     }
@@ -136,7 +140,7 @@ export class MaintenanceService {
 
   async getById(id: string, actor: AuthUser): Promise<unknown> {
     const row = await this.prisma.maintenanceSchedule.findUnique({
-      where: { id }, include: maintenanceInclude,
+      where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { customer: { companyId: actor.companyId ?? '__none__' } }) }, include: maintenanceInclude,
     });
     if (!row) throw new NotFoundException('Maintenance schedule not found');
     if (actor.role === Role.CUSTOMER && row.customerId !== actor.customerId) {
@@ -146,7 +150,7 @@ export class MaintenanceService {
   }
 
   async update(id: string, dto: UpdateMaintenanceDto, actor: AuthUser): Promise<unknown> {
-    const row = await this.prisma.maintenanceSchedule.findUnique({ where: { id } });
+    const row = await this.prisma.maintenanceSchedule.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { customer: { companyId: actor.companyId ?? '__none__' } }) } });
     if (!row) throw new NotFoundException('Maintenance schedule not found');
     if (actor.role === Role.CUSTOMER && row.customerId !== actor.customerId) {
       throw new NotFoundException('Maintenance schedule not found');
@@ -179,6 +183,7 @@ export class MaintenanceService {
       status: MaintenanceStatus.ACTIVE,
       nextServiceDate: { gte: now, lte: horizon },
       ...(actor.role === Role.CUSTOMER ? { customerId: actor.customerId ?? '__none__' } : {}),
+      ...(actor.role !== Role.SUPER_ADMIN ? { customer: { companyId: actor.companyId ?? '__none__' } } : {}),
     };
     return this.prisma.maintenanceSchedule.findMany({
       where,
@@ -190,7 +195,7 @@ export class MaintenanceService {
 
   /** Marks a visit complete: last = today, next rolled forward by frequency. */
   async complete(id: string, actor: AuthUser): Promise<unknown> {
-    const row = await this.prisma.maintenanceSchedule.findUnique({ where: { id } });
+    const row = await this.prisma.maintenanceSchedule.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { customer: { companyId: actor.companyId ?? '__none__' } }) } });
     if (!row) throw new NotFoundException('Maintenance schedule not found');
     const today = new Date();
     const next = this.addFrequency(today, row.frequency, row.customIntervalDays ?? undefined);

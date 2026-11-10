@@ -26,12 +26,14 @@ describe('EmployeesService transfer targets', () => {
       email: 'source@example.test',
       role: Role.EMPLOYEE,
       isActive: true,
+      companyId: 'company-1',
       employeeId: 'source-employee',
     });
 
     expect(prisma.employee.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
+          companyId: 'company-1',
           id: { not: 'source-employee' },
           user: { isActive: true },
           designationRecord: { is: { isActive: true, canUseFieldApp: true } },
@@ -51,3 +53,4 @@ describe('EmployeesService transfer targets', () => {
     ]);
   });
 });
+import { describe, expect, it, jest } from '@jest/globals';

@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ServiceReportStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -7,10 +7,12 @@ export class CreateServiceReportDto {
   @IsNotEmpty()
   workOrderId!: string;
 
+  @IsOptional()
   @IsString()
   @MaxLength(5000)
   workSummary!: string;
 
+  @IsOptional()
   @IsString()
   @MaxLength(10000)
   workPerformed!: string;
@@ -78,6 +80,18 @@ export class ReportDecisionDto {
   @IsString()
   @MaxLength(1000)
   note?: string;
+}
+
+export class CreateReportLocationDto {
+  @IsLatitude()
+  latitude!: number;
+
+  @IsLongitude()
+  longitude!: number;
+
+  @IsOptional()
+  @IsDateString()
+  capturedAt?: string;
 }
 
 export class ListServiceReportsDto extends PaginationDto {

@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
 import { Role } from '@prisma/client';
@@ -24,6 +24,16 @@ export class WorkPhotosController {
   @ResponseMessage('Photo uploaded')
   upload(@UploadedFile() file: Express.Multer.File, @Body() dto: UploadWorkPhotoDto, @CurrentUser() user: AuthUser) {
     return this.photos.upload(file, dto, user);
+  }
+
+  @Post('batch')
+  @UseInterceptors(FilesInterceptor('photos', 10, { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 10 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { photos: { type: 'array', items: { type: 'string', format: 'binary' } }, workOrderId: { type: 'string', format: 'uuid' }, serviceReportId: { type: 'string', format: 'uuid' }, caption: { type: 'string' } }, required: ['photos', 'workOrderId'] } })
+  @ApiOperation({ summary: 'Upload multiple work photos and report per-file results' })
+  @ResponseMessage('Work photos processed')
+  uploadMany(@UploadedFiles() files: Express.Multer.File[], @Body() dto: UploadWorkPhotoDto, @CurrentUser() user: AuthUser) {
+    return this.photos.uploadMany(files, dto, user);
   }
 
   @Get()

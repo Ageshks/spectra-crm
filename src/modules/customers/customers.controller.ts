@@ -24,12 +24,13 @@ import {
   UpdateCustomerDto,
 } from './dto/customers.dto';
 import { CustomersService } from './customers.service';
+import { AuthService } from '../auth/auth.service';
 
 @ApiTags('customers')
 @ApiBearerAuth()
 @Controller('customers')
 export class CustomersController {
-  constructor(private readonly customers: CustomersService) {}
+  constructor(private readonly customers: CustomersService, private readonly auth: AuthService) {}
 
   // ---------------------------------------------------------------
   // Admin / manager management
@@ -39,8 +40,8 @@ export class CustomersController {
   @Roles(Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'List customers (search, paginate)' })
   @ResponseMessage('Customers retrieved')
-  list(@Query() query: ListCustomersDto) {
-    return this.customers.list(query);
+  list(@CurrentUser() user: AuthUser, @Query() query: ListCustomersDto) {
+    return this.customers.list(query, user);
   }
 
   @Post()
@@ -48,7 +49,7 @@ export class CustomersController {
   @ApiOperation({ summary: 'Create a customer account' })
   @ResponseMessage('Customer created')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCustomerDto) {
-    return this.customers.create(dto, user.id);
+    return this.customers.create(dto, user);
   }
 
   @Get(':id')
@@ -56,8 +57,8 @@ export class CustomersController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Get customer with service locations' })
   @ResponseMessage('Customer retrieved')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.customers.getById(id);
+  get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.customers.getById(id, user);
   }
 
   @Patch(':id')
@@ -70,15 +71,40 @@ export class CustomersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCustomerDto,
   ) {
-    return this.customers.updateAdmin(id, dto, user.id);
+    return this.customers.updateAdmin(id, dto, user);
   }
+
+  @Patch(':id/addresses/:addressId')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Update a customer service location' })
+  @ResponseMessage('Customer service location updated')
+  updateCustomerAddress(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('addressId', ParseUUIDPipe) addressId: string,
+    @Body() dto: UpdateAddressDto,
+  ) {
+    return this.customers.updateAddressForCustomer(id, addressId, dto, user);
+  }
+
+  @Post(':id/reset-password')
+  @Post(':id/password-reset')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Email a password reset OTP to the customer' })
+  @ResponseMessage('If the customer account is active, a password reset code has been sent')
+  async requestPasswordReset(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    const customer = await this.customers.getById(id, user) as { user: { email: string } };
+    await this.auth.forgotPassword({ email: customer.user.email });
+    return null;
+  }
+
   @Delete(':id')
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Delete a customer when safe, otherwise deactivate' })
   @ResponseMessage('Customer removed')
   remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.customers.remove(id, user.id);
+    return this.customers.remove(id, user);
   }
 
 

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
+import { AuthUser } from '../../common/types/auth.types';
 import { AuditService } from '../../common/audit/audit.module';
 import {
   normalizePagination,
@@ -21,6 +22,7 @@ export class ServicesService {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
     const where: Prisma.ServiceWhereInput = {
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      company: { slug: query.companySlug ?? 'default' },
       ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
       ...(search
         ? {
@@ -37,36 +39,48 @@ export class ServicesService {
         skip,
         take,
         orderBy: safeOrderBy(sortBy, sortOrder, ['createdAt', 'name', 'basePrice']),
-        include: { category: { select: { id: true, name: true } } },
+        select: {
+          id: true, companyId: true, categoryId: true, name: true, description: true, image: true,
+          estimatedDuration: true, basePrice: true, requiresMaintenance: true,
+          defaultMaintenanceFrequency: true, isActive: true, createdAt: true, updatedAt: true,
+          category: { select: { id: true, name: true } },
+        },
       }),
       this.prisma.service.count({ where }),
     ]);
     return paginated(items, page, limit, total);
   }
 
-  async getById(id: string): Promise<unknown> {
-    const service = await this.prisma.service.findUnique({
-      where: { id },
+  async getById(id: string, actor?: AuthUser): Promise<unknown> {
+    const service = await this.prisma.service.findFirst({
+      where: { id, ...(actor && actor.role !== Role.SUPER_ADMIN ? { companyId: actor.companyId ?? '__none__' } : {}) },
       include: { category: { select: { id: true, name: true, image: true } } },
     });
     if (!service) throw new NotFoundException('Service not found');
     return service;
   }
 
-  async create(dto: CreateServiceDto, actorId: string): Promise<unknown> {
+  async create(dto: CreateServiceDto, actor: AuthUser): Promise<unknown> {
+    const companyId = actor.role === Role.SUPER_ADMIN ? dto.companyId ?? actor.companyId : actor.companyId;
+    if (!companyId) throw new BadRequestException('companyId is required');
+    if (actor.role !== Role.SUPER_ADMIN && dto.companyId && dto.companyId !== actor.companyId) throw new BadRequestException('Cross-company catalog access is not allowed');
     const category = await this.prisma.serviceCategory.findUnique({
       where: { id: dto.categoryId },
     });
     if (!category) throw new BadRequestException('Category does not exist');
+    if (category.companyId !== companyId) throw new BadRequestException('Category belongs to another company');
 
     const service = await this.prisma.service.create({
       data: {
+        companyId,
         name: dto.name,
         categoryId: dto.categoryId,
         description: dto.description,
         image: dto.image,
         estimatedDuration: dto.estimatedDuration,
         basePrice: dto.basePrice,
+        gstRate: dto.gstRate ?? 0,
+        gstInclusive: dto.gstInclusive ?? false,
         requiresMaintenance: dto.requiresMaintenance ?? false,
         defaultMaintenanceFrequency: dto.defaultMaintenanceFrequency ?? null,
         isActive: dto.isActive ?? true,
@@ -79,20 +93,21 @@ export class ServicesService {
       module: 'services',
       entity: 'Service',
       entityId: service.id,
-      userId: actorId,
+      userId: actor.id,
       newValues: { name: dto.name, basePrice: dto.basePrice },
     });
     return service;
   }
 
-  async update(id: string, dto: UpdateServiceDto, actorId: string): Promise<unknown> {
-    const existing = await this.prisma.service.findUnique({ where: { id } });
+  async update(id: string, dto: UpdateServiceDto, actor: AuthUser): Promise<unknown> {
+    const existing = await this.prisma.service.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!existing) throw new NotFoundException('Service not found');
     if (dto.categoryId) {
       const category = await this.prisma.serviceCategory.findUnique({
         where: { id: dto.categoryId },
       });
       if (!category) throw new BadRequestException('Category does not exist');
+      if (category.companyId !== existing.companyId) throw new BadRequestException('Category belongs to another company');
     }
 
     const service = await this.prisma.service.update({
@@ -101,6 +116,8 @@ export class ServicesService {
         ...dto,
         estimatedDuration: dto.estimatedDuration ?? undefined,
         basePrice: dto.basePrice ?? undefined,
+        gstRate: dto.gstRate ?? undefined,
+        gstInclusive: dto.gstInclusive ?? undefined,
         defaultMaintenanceFrequency:
           dto.defaultMaintenanceFrequency === null
             ? null
@@ -114,7 +131,7 @@ export class ServicesService {
       module: 'services',
       entity: 'Service',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       oldValues: {
         name: existing.name,
         isActive: existing.isActive,
@@ -125,8 +142,8 @@ export class ServicesService {
     return service;
   }
 
-  async setStatus(id: string, isActive: boolean, actorId: string): Promise<unknown> {
-    const existing = await this.prisma.service.findUnique({ where: { id } });
+  async setStatus(id: string, isActive: boolean, actor: AuthUser): Promise<unknown> {
+    const existing = await this.prisma.service.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!existing) throw new NotFoundException('Service not found');
     const service = await this.prisma.service.update({ where: { id }, data: { isActive } });
     await this.audit.log({
@@ -134,23 +151,23 @@ export class ServicesService {
       module: 'services',
       entity: 'Service',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       newValues: { isActive },
     });
     return service;
   }
 
   /** Hard delete only when nothing references the service; otherwise deactivate. */
-  async remove(id: string, actorId: string): Promise<unknown> {
-    const existing = await this.prisma.service.findUnique({
-      where: { id },
+  async remove(id: string, actor: AuthUser): Promise<unknown> {
+    const existing = await this.prisma.service.findFirst({
+      where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) },
       include: { _count: { select: { bookings: true, workOrders: true, maintenanceSchedules: true } } },
     });
     if (!existing) throw new NotFoundException('Service not found');
     const references =
       existing._count.bookings + existing._count.workOrders + existing._count.maintenanceSchedules;
     if (references > 0) {
-      await this.setStatus(id, false, actorId);
+      await this.setStatus(id, false, actor);
       return { id, deleted: false, deactivated: true };
     }
     await this.prisma.service.delete({ where: { id } });
@@ -159,7 +176,7 @@ export class ServicesService {
       module: 'services',
       entity: 'Service',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       oldValues: { name: existing.name },
     });
     return { id, deleted: true };

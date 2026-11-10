@@ -12,6 +12,7 @@ const supportedYear = (year: number): void => {
 };
 
 const settingKey = (year: number): string => `WORKING_CALENDAR_${year}`;
+const DEFAULT_COMPANY_ID = '00000000-0000-4000-8000-000000000001';
 
 const generalHolidaysFor = (year: number): WorkingCalendar['exceptions'] => {
   const fixed = [
@@ -62,9 +63,9 @@ export class WorkingCalendarService {
     private readonly audit: AuditService,
   ) {}
 
-  async get(year: number): Promise<WorkingCalendar> {
+  async get(year: number, companyId = DEFAULT_COMPANY_ID): Promise<WorkingCalendar> {
     supportedYear(year);
-    const value = await this.settings.get(settingKey(year));
+    const value = await this.settings.get(settingKey(year), companyId);
     if (value) {
       try {
         const parsed = JSON.parse(value) as WorkingCalendar;
@@ -89,10 +90,10 @@ export class WorkingCalendarService {
    * Once configured, date-specific holidays and working-day overrides take
    * precedence over the regular weekly pattern.
    */
-  async isWorkingDate(date: string): Promise<boolean> {
+  async isWorkingDate(date: string, companyId = DEFAULT_COMPANY_ID): Promise<boolean> {
     const year = Number(date.slice(0, 4));
     for (const calendarYear of [year, year - 1]) {
-      const value = await this.settings.get(settingKey(calendarYear));
+      const value = await this.settings.get(settingKey(calendarYear), companyId);
       if (!value) continue;
       let calendar: WorkingCalendar;
       try {
@@ -113,6 +114,7 @@ export class WorkingCalendarService {
 
   async save(year: number, dto: SaveWorkingCalendarDto, actor: AuthUser): Promise<WorkingCalendar> {
     supportedYear(year);
+    if (!actor.companyId) throw new BadRequestException('Company context is required to save the working calendar');
     const startDate = this.dateOnly(dto.startDate);
     const endDate = this.dateOnly(dto.endDate);
     if (endDate < startDate) throw new BadRequestException('endDate cannot be before startDate');
@@ -149,9 +151,9 @@ export class WorkingCalendarService {
       exceptions,
     };
     const key = settingKey(year);
-    const oldValue = await this.settings.get(key);
+    const oldValue = await this.settings.get(key, actor.companyId);
     const serialized = JSON.stringify(calendar);
-    await this.settings.set(key, serialized, `Working days and dates for ${year}`);
+    await this.settings.set(key, serialized, `Working days and dates for ${year}`, actor.companyId);
     await this.audit.log({
       action: 'WORKING_CALENDAR_UPDATED',
       module: 'working-calendar',

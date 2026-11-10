@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -16,6 +17,10 @@ import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { ToBoolean } from '../../../common/utils/transformers';
 
 export class CreateServiceDto {
+  @IsOptional()
+  @IsUUID()
+  companyId?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
@@ -46,6 +51,17 @@ export class CreateServiceDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   basePrice!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  gstRate?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  gstInclusive?: boolean;
 
   @IsOptional()
   @IsBoolean()
@@ -95,6 +111,17 @@ export class UpdateServiceDto {
   basePrice?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  gstRate?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  gstInclusive?: boolean;
+
+  @IsOptional()
   @IsBoolean()
   requiresMaintenance?: boolean;
 
@@ -108,6 +135,10 @@ export class UpdateServiceDto {
 }
 
 export class ListServicesDto extends PaginationDto {
+  @IsOptional()
+  @IsString()
+  companySlug?: string;
+
   @IsOptional()
   @IsString()
   categoryId?: string;

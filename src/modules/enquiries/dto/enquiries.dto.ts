@@ -4,6 +4,10 @@ import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateEnquiryDto {
   @IsOptional()
+  @IsString()
+  companySlug?: string;
+
+  @IsOptional()
   @IsUUID()
   customerId?: string;
 

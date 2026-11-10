@@ -124,6 +124,35 @@ enum ExpenseStatus {
   REJECTED
 }
 
+enum ServiceInvoiceStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  FINALIZED
+}
+
+enum InvoiceItemCategory {
+  DELIVERY
+  TRANSPORTATION
+  MATERIAL
+  SPARE_PARTS
+  OTHER_EXPENSE
+  DISCOUNT
+}
+
+enum InvoiceAdjustmentType {
+  CREDIT_NOTE
+  DEBIT_NOTE
+}
+
+enum InvoiceAdjustmentStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  FINALIZED
+}
+
 enum MaintenanceFrequency {
   WEEKLY
   MONTHLY
@@ -187,6 +216,30 @@ enum ExportStatus {
 // Identity & auth
 // ---------------------------------------------------------------
 
+model Company {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(150)
+  slug         String   @unique @db.VarChar(80)
+  isActive     Boolean  @default(true)
+  gstStateCode String?  @db.VarChar(2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users             User[]
+  customers         Customer[]
+  employees         Employee[]
+  managers          Manager[]
+  enquiries         Enquiry[]
+  bookings          Booking[]
+  workOrders        WorkOrder[]
+  settings          Setting[]
+  serviceCategories ServiceCategory[]
+  services          Service[]
+  serviceInvoices   ServiceInvoice[]
+
+  @@index([isActive])
+}
+
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   firstName    String    @db.VarChar(100)
@@ -195,6 +248,7 @@ model User {
   phone        String?   @unique @db.VarChar(20)
   passwordHash String
   role         Role      @default(CUSTOMER)
+  companyId    String?   @db.Uuid
   profilePhoto String?
   isActive     Boolean   @default(true)
   isVerified   Boolean   @default(false)
@@ -202,26 +256,37 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  customer           Customer?
-  employee           Employee?
-  manager            Manager?
-  refreshTokens      RefreshToken[]
-  passwordResets     PasswordResetToken[]
-  deviceTokens       DeviceToken[]
-  notifications      Notification[]
-  auditLogs          AuditLog[]
-  createdWorkOrders  WorkOrder[]          @relation("WorkOrderCreatedBy")
-  assignmentsMade    WorkAssignment[]     @relation("AssignmentCreatedBy")
-  transfersRequested WorkTransfer[]       @relation("TransferRequestedBy")
-  transfersApproved  WorkTransfer[]       @relation("TransferApprovedBy")
-  reviewedReports    ServiceReport[]      @relation("ReportReviewedBy")
-  uploadedPhotos     WorkPhoto[]
-  approvedOvertimes  Overtime[]           @relation("OvertimeApprovedBy")
-  approvedLeaves     Leave[]              @relation("LeaveApprovedBy")
-  reviewedExpenses   Expense[]            @relation("ExpenseReviewedBy")
-  exportJobs         ExportJob[]
+  customer                   Customer?
+  company                    Company?                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee                   Employee?
+  manager                    Manager?
+  refreshTokens              RefreshToken[]
+  passwordResets             PasswordResetToken[]
+  deviceTokens               DeviceToken[]
+  notifications              Notification[]
+  auditLogs                  AuditLog[]
+  createdWorkOrders          WorkOrder[]              @relation("WorkOrderCreatedBy")
+  assignmentsMade            WorkAssignment[]         @relation("AssignmentCreatedBy")
+  transfersRequested         WorkTransfer[]           @relation("TransferRequestedBy")
+  transfersApproved          WorkTransfer[]           @relation("TransferApprovedBy")
+  reviewedReports            ServiceReport[]          @relation("ReportReviewedBy")
+  serviceReportLocations     ServiceReportLocation[]  @relation("ReportLocationSubmittedBy")
+  uploadedPhotos             WorkPhoto[]
+  approvedOvertimes          Overtime[]               @relation("OvertimeApprovedBy")
+  approvedLeaves             Leave[]                  @relation("LeaveApprovedBy")
+  reviewedExpenses           Expense[]                @relation("ExpenseReviewedBy")
+  exportJobs                 ExportJob[]
+  createdServiceInvoices     ServiceInvoice[]         @relation("InvoiceCreatedBy")
+  approvedServiceInvoices    ServiceInvoice[]         @relation("InvoiceApprovedBy")
+  finalizedServiceInvoices   ServiceInvoice[]         @relation("InvoiceFinalizedBy")
+  createdInvoiceItems        InvoiceItem[]
+  uploadedInvoiceAttachments InvoiceAttachment[]
+  invoiceHistoryActions      InvoiceApprovalHistory[]
+  createdInvoiceAdjustments  InvoiceAdjustment[]      @relation("AdjustmentCreatedBy")
+  approvedInvoiceAdjustments InvoiceAdjustment[]      @relation("AdjustmentApprovedBy")
 
   @@index([role])
+  @@index([companyId, role])
   @@index([isActive])
   @@index([createdAt])
 }
@@ -248,6 +313,7 @@ model PasswordResetToken {
   tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
+  attempts  Int       @default(0)
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -261,21 +327,26 @@ model PasswordResetToken {
 // ---------------------------------------------------------------
 
 model Customer {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @unique @db.Uuid
-  isActive  Boolean  @default(true)
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @db.Uuid
+  companyId        String   @db.Uuid
+  organizationName String?  @db.VarChar(150)
+  isActive         Boolean  @default(true)
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
   addresses            CustomerAddress[]
   enquiries            Enquiry[]
   bookings             Booking[]
   workOrders           WorkOrder[]
+  serviceInvoices      ServiceInvoice[]
   maintenanceSchedules MaintenanceSchedule[]
 
   @@index([createdAt])
+  @@index([companyId])
 }
 
 model CustomerAddress {
@@ -287,6 +358,7 @@ model CustomerAddress {
   district      String?  @db.VarChar(100)
   state         String   @db.VarChar(100)
   pincode       String   @db.VarChar(10)
+  gstStateCode  String?  @db.VarChar(2)
   latitude      Float?
   longitude     Float?
   contactPerson String?  @db.VarChar(150)
@@ -307,38 +379,41 @@ model CustomerAddress {
 }
 
 model Employee {
-  id          String    @id @default(uuid()) @db.Uuid
-  userId      String    @unique @db.Uuid
-  employeeNo  String?   @unique @db.VarChar(30)
-  joiningDate DateTime?
-  designationId String? @db.Uuid
-  designation String?   @db.VarChar(120)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @unique @db.Uuid
+  companyId     String    @db.Uuid
+  employeeNo    String?   @unique @db.VarChar(30)
+  joiningDate   DateTime?
+  designationId String?   @db.Uuid
+  designation   String?   @db.VarChar(120)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  designationRecord Designation? @relation(fields: [designationId], references: [id], onDelete: SetNull)
-  assignments   WorkAssignment[]
-  transfersFrom WorkTransfer[]   @relation("TransferFromEmployee")
-  transfersTo   WorkTransfer[]   @relation("TransferToEmployee")
-  reports       ServiceReport[]
-  attendances   Attendance[]
-  overtimes     Overtime[]
-  leaves        Leave[]
-  expenses      Expense[]
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company           Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  designationRecord Designation?     @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  assignments       WorkAssignment[]
+  transfersFrom     WorkTransfer[]   @relation("TransferFromEmployee")
+  transfersTo       WorkTransfer[]   @relation("TransferToEmployee")
+  reports           ServiceReport[]
+  attendances       Attendance[]
+  overtimes         Overtime[]
+  leaves            Leave[]
+  expenses          Expense[]
 
   @@index([createdAt])
+  @@index([companyId])
   @@index([designationId])
 }
 
 model Designation {
-  id               String     @id @default(uuid()) @db.Uuid
-  name             String     @unique @db.VarChar(120)
-  isActive         Boolean    @default(true)
-  canUseFieldApp   Boolean    @default(false)
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  employees        Employee[]
+  id             String     @id @default(uuid()) @db.Uuid
+  name           String     @unique @db.VarChar(120)
+  isActive       Boolean    @default(true)
+  canUseFieldApp Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  employees      Employee[]
 
   @@index([isActive])
 }
@@ -346,17 +421,20 @@ model Designation {
 model Manager {
   id        String    @id @default(uuid()) @db.Uuid
   userId    String    @unique @db.Uuid
+  companyId String    @db.Uuid
   title     String?   @db.VarChar(120)
   joinedAt  DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
   enquiries   Enquiry[]    @relation("EnquiryAssignedManager")
   workOrders  WorkOrder[]  @relation("WorkOrderManager")
   attendances Attendance[]
 
   @@index([createdAt])
+  @@index([companyId])
 }
 
 // ---------------------------------------------------------------
@@ -365,6 +443,7 @@ model Manager {
 
 model ServiceCategory {
   id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
   name        String   @db.VarChar(150)
   description String?
   image       String?
@@ -372,38 +451,47 @@ model ServiceCategory {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   services Service[]
 
   @@index([isActive])
+  @@index([companyId])
 }
 
 model Service {
   id                          String                @id @default(uuid()) @db.Uuid
+  companyId                   String                @db.Uuid
   categoryId                  String                @db.Uuid
   name                        String                @db.VarChar(200)
   description                 String?
   image                       String?
   estimatedDuration           Int                   @default(60)
   basePrice                   Decimal               @db.Decimal(10, 2)
+  gstRate                     Decimal               @default(0) @db.Decimal(5, 2)
+  gstInclusive                Boolean               @default(false)
   requiresMaintenance         Boolean               @default(false)
   defaultMaintenanceFrequency MaintenanceFrequency?
   isActive                    Boolean               @default(true)
   createdAt                   DateTime              @default(now())
   updatedAt                   DateTime              @updatedAt
 
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
   category             ServiceCategory       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   enquiries            Enquiry[]
   bookings             Booking[]
   workOrders           WorkOrder[]
   maintenanceSchedules MaintenanceSchedule[]
+  invoices             ServiceInvoice[]
 
   @@index([categoryId])
   @@index([isActive])
   @@index([name])
+  @@index([companyId])
 }
 
 model Enquiry {
   id                 String        @id @default(uuid()) @db.Uuid
+  companyId          String        @db.Uuid
   enquiryNumber      String        @unique @db.VarChar(30)
   customerId         String?       @db.Uuid
   name               String        @db.VarChar(150)
@@ -419,6 +507,7 @@ model Enquiry {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   customer         Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   service          Service?         @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   serviceLocation  CustomerAddress? @relation(fields: [serviceLocationId], references: [id], onDelete: SetNull)
@@ -429,14 +518,17 @@ model Enquiry {
   @@index([customerId])
   @@index([assignedManagerId])
   @@index([createdAt])
+  @@index([companyId])
 }
 
 model Booking {
   id                String        @id @default(uuid()) @db.Uuid
+  companyId         String        @db.Uuid
   bookingNumber     String        @unique @db.VarChar(30)
   customerId        String        @db.Uuid
   serviceId         String        @db.Uuid
   serviceLocationId String        @db.Uuid
+  baseServicePrice  Decimal       @db.Decimal(12, 2)
   preferredDate     DateTime      @db.Date
   preferredTime     String        @db.VarChar(8)
   remarks           String?
@@ -448,10 +540,12 @@ model Booking {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
+  company              Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
   customer             Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
   service              Service         @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   serviceLocation      CustomerAddress @relation(fields: [serviceLocationId], references: [id], onDelete: Restrict)
   workOrder            WorkOrder?
+  serviceInvoice       ServiceInvoice?
   convertedFromEnquiry Enquiry?
 
   @@index([customerId])
@@ -459,6 +553,7 @@ model Booking {
   @@index([status])
   @@index([preferredDate])
   @@index([createdAt])
+  @@index([companyId])
 }
 
 // ---------------------------------------------------------------
@@ -467,6 +562,7 @@ model Booking {
 
 model WorkOrder {
   id                 String            @id @default(uuid()) @db.Uuid
+  companyId          String            @db.Uuid
   workOrderNumber    String            @unique @db.VarChar(30)
   bookingId          String            @unique @db.Uuid
   customerId         String            @db.Uuid
@@ -484,6 +580,7 @@ model WorkOrder {
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
   booking         Booking              @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   customer        Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   service         Service              @relation(fields: [serviceId], references: [id], onDelete: Restrict)
@@ -494,6 +591,7 @@ model WorkOrder {
   transfers       WorkTransfer[]
   statusLogs      WorkOrderStatusLog[]
   serviceReport   ServiceReport?
+  serviceInvoice  ServiceInvoice?
   photos          WorkPhoto[]
 
   @@index([customerId])
@@ -502,6 +600,127 @@ model WorkOrder {
   @@index([status])
   @@index([scheduledDate])
   @@index([createdAt])
+  @@index([companyId])
+}
+
+model ServiceInvoice {
+  id               String               @id @default(uuid()) @db.Uuid
+  companyId        String               @db.Uuid
+  bookingId        String               @unique @db.Uuid
+  workOrderId      String               @unique @db.Uuid
+  customerId       String               @db.Uuid
+  serviceId        String               @db.Uuid
+  baseServicePrice Decimal              @db.Decimal(12, 2)
+  discountAmount   Decimal              @default(0) @db.Decimal(12, 2)
+  subtotal         Decimal              @db.Decimal(12, 2)
+  taxableAmount    Decimal              @db.Decimal(12, 2)
+  gstRate          Decimal              @db.Decimal(5, 2)
+  gstAmount        Decimal              @db.Decimal(12, 2)
+  cgstAmount       Decimal              @db.Decimal(12, 2)
+  sgstAmount       Decimal              @db.Decimal(12, 2)
+  igstAmount       Decimal              @db.Decimal(12, 2)
+  finalAmount      Decimal              @db.Decimal(12, 2)
+  taxInclusive     Boolean              @default(false)
+  status           ServiceInvoiceStatus @default(DRAFT)
+  createdById      String               @db.Uuid
+  submittedAt      DateTime?
+  approvedById     String?              @db.Uuid
+  approvedAt       DateTime?
+  finalizedById    String?              @db.Uuid
+  finalizedAt      DateTime?
+  rejectionReason  String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  company     Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  booking     Booking                  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  workOrder   WorkOrder                @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  customer    Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  service     Service                  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  createdBy   User                     @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy  User?                    @relation("InvoiceApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  finalizedBy User?                    @relation("InvoiceFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  items       InvoiceItem[]
+  attachments InvoiceAttachment[]
+  history     InvoiceApprovalHistory[]
+  adjustments InvoiceAdjustment[]
+
+  @@index([companyId, status, createdAt])
+  @@index([customerId, status])
+}
+
+model InvoiceItem {
+  id          String              @id @default(uuid()) @db.Uuid
+  invoiceId   String              @db.Uuid
+  category    InvoiceItemCategory
+  description String              @db.VarChar(500)
+  quantity    Decimal             @db.Decimal(10, 3)
+  unitPrice   Decimal             @db.Decimal(12, 2)
+  amount      Decimal             @db.Decimal(12, 2)
+  createdById String              @db.Uuid
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  invoice     ServiceInvoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  createdBy   User                @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  attachments InvoiceAttachment[]
+
+  @@index([invoiceId])
+}
+
+model InvoiceAttachment {
+  id            String   @id @default(uuid()) @db.Uuid
+  invoiceId     String   @db.Uuid
+  invoiceItemId String?  @db.Uuid
+  fileUrl       String
+  fileType      String   @db.VarChar(80)
+  uploadedById  String   @db.Uuid
+  createdAt     DateTime @default(now())
+
+  invoice     ServiceInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceItem InvoiceItem?   @relation(fields: [invoiceItemId], references: [id], onDelete: Cascade)
+  uploadedBy  User           @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([invoiceItemId])
+}
+
+model InvoiceApprovalHistory {
+  id             String                @id @default(uuid()) @db.Uuid
+  invoiceId      String                @db.Uuid
+  action         String                @db.VarChar(40)
+  previousStatus ServiceInvoiceStatus?
+  newStatus      ServiceInvoiceStatus
+  remarks        String?
+  performedById  String                @db.Uuid
+  changes        Json?
+  performedAt    DateTime              @default(now())
+
+  invoice     ServiceInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  performedBy User           @relation(fields: [performedById], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId, performedAt])
+}
+
+model InvoiceAdjustment {
+  id           String                  @id @default(uuid()) @db.Uuid
+  invoiceId    String                  @db.Uuid
+  type         InvoiceAdjustmentType
+  amount       Decimal                 @db.Decimal(12, 2)
+  reason       String                  @db.VarChar(1000)
+  status       InvoiceAdjustmentStatus @default(PENDING_APPROVAL)
+  createdById  String                  @db.Uuid
+  approvedById String?                 @db.Uuid
+  approvedAt   DateTime?
+  finalizedAt  DateTime?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  invoice    ServiceInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  createdBy  User           @relation("AdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy User?          @relation("AdjustmentApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId, status, createdAt])
 }
 
 model WorkOrderStatusLog {
@@ -590,14 +809,31 @@ model ServiceReport {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
-  workOrder  WorkOrder   @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  employee   Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  reviewedBy User?       @relation("ReportReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  workOrder  WorkOrder               @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  employee   Employee                @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewedBy User?                   @relation("ReportReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   photos     WorkPhoto[]
+  locations  ServiceReportLocation[]
 
   @@index([employeeId])
   @@index([status])
   @@index([createdAt])
+}
+
+model ServiceReportLocation {
+  id              String    @id @default(uuid()) @db.Uuid
+  serviceReportId String    @db.Uuid
+  submittedById   String?   @db.Uuid
+  latitude        Decimal   @db.Decimal(9, 6)
+  longitude       Decimal   @db.Decimal(9, 6)
+  capturedAt      DateTime?
+  recordedAt      DateTime  @default(now())
+
+  serviceReport ServiceReport @relation(fields: [serviceReportId], references: [id], onDelete: Cascade)
+  submittedBy   User?         @relation("ReportLocationSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+
+  @@index([serviceReportId, recordedAt])
+  @@index([submittedById])
 }
 
 model WorkPhoto {
@@ -688,6 +924,7 @@ model Leave {
   status       LeaveStatus @default(PENDING)
   approvedById String?     @db.Uuid
   approvedAt   DateTime?
+  reviewNote   String?     @db.VarChar(1000)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -700,20 +937,20 @@ model Leave {
 }
 
 model Expense {
-  id           String        @id @default(uuid()) @db.Uuid
-  employeeId   String        @db.Uuid
-  amount       Decimal       @db.Decimal(10, 2)
-  currency     String        @default("INR") @db.VarChar(3)
-  category     String        @db.VarChar(100)
-  expenseDate  DateTime      @db.Date
-  description  String        @db.VarChar(1000)
-  receiptUrl   String?
-  status       ExpenseStatus @default(PENDING)
-  reviewerId   String?       @db.Uuid
-  reviewedAt   DateTime?
-  reviewNote   String?       @db.VarChar(1000)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id          String        @id @default(uuid()) @db.Uuid
+  employeeId  String        @db.Uuid
+  amount      Decimal       @db.Decimal(10, 2)
+  currency    String        @default("INR") @db.VarChar(3)
+  category    String        @db.VarChar(100)
+  expenseDate DateTime      @db.Date
+  description String        @db.VarChar(1000)
+  receiptUrl  String?
+  status      ExpenseStatus @default(PENDING)
+  reviewerId  String?       @db.Uuid
+  reviewedAt  DateTime?
+  reviewNote  String?       @db.VarChar(1000)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   reviewer User?    @relation("ExpenseReviewedBy", fields: [reviewerId], references: [id], onDelete: SetNull)
@@ -827,11 +1064,17 @@ model AuditLog {
 
 model Setting {
   id          String   @id @default(uuid()) @db.Uuid
-  key         String   @unique @db.VarChar(100)
+  companyId   String   @db.Uuid
+  key         String   @db.VarChar(100)
   value       String   @db.Text
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@index([companyId])
 }
 
 model ExportJob {

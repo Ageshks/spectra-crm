@@ -19,10 +19,12 @@ export class DashboardService {
     return { start, end };
   }
 
-  async admin(): Promise<Record<string, unknown>> {
+  async admin(actor: AuthUser): Promise<Record<string, unknown>> {
     const { start, end } = this.todayRange();
     const upcomingCutoff = new Date();
     upcomingCutoff.setDate(upcomingCutoff.getDate() + 14);
+    const companyId = actor.role === 'SUPER_ADMIN' ? undefined : actor.companyId ?? '__none__';
+    const attendanceCompanyScope = companyId ? { OR: [{ employee: { companyId } }, { manager: { companyId } }] } : {};
 
     const [
       totalCustomers,
@@ -39,25 +41,25 @@ export class DashboardService {
       todayLate,
       pendingOvertime,
     ] = await Promise.all([
-      this.prisma.customer.count(),
-      this.prisma.employee.count(),
-      this.prisma.enquiry.count({ where: { status: 'NEW' } }),
-      this.prisma.booking.count({ where: { status: 'REQUESTED' } }),
-      this.prisma.booking.count(),
+      this.prisma.customer.count({ where: companyId ? { companyId } : {} }),
+      this.prisma.employee.count({ where: companyId ? { companyId } : {} }),
+      this.prisma.enquiry.count({ where: { ...(companyId ? { companyId } : {}), status: 'NEW' } }),
+      this.prisma.booking.count({ where: { ...(companyId ? { companyId } : {}), status: 'REQUESTED' } }),
+      this.prisma.booking.count({ where: companyId ? { companyId } : {} }),
       this.prisma.workOrder.count({
-        where: { scheduledDate: { gte: start }, status: { notIn: ['COMPLETED', 'APPROVED', 'CANCELLED'] } },
+        where: { ...(companyId ? { companyId } : {}), scheduledDate: { gte: start }, status: { notIn: ['COMPLETED', 'APPROVED', 'CANCELLED'] } },
       }),
       this.prisma.workOrder.count({
-        where: { status: { in: ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'] } },
+        where: { ...(companyId ? { companyId } : {}), status: { in: ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'] } },
       }),
-      this.prisma.workOrder.count({ where: { status: 'COMPLETED' } }),
-      this.prisma.serviceReport.count({ where: { status: 'SUBMITTED' } }),
+      this.prisma.workOrder.count({ where: { ...(companyId ? { companyId } : {}), status: 'COMPLETED' } }),
+      this.prisma.serviceReport.count({ where: { ...(companyId ? { workOrder: { companyId } } : {}), status: 'SUBMITTED' } }),
       this.prisma.maintenanceSchedule.count({
-        where: { nextServiceDate: { lte: upcomingCutoff }, status: 'ACTIVE' },
+        where: { ...(companyId ? { customer: { companyId } } : {}), nextServiceDate: { lte: upcomingCutoff }, status: 'ACTIVE' },
       }),
-      this.prisma.attendance.count({ where: { date: { gte: start, lte: end }, status: 'PRESENT' } }),
-      this.prisma.attendance.count({ where: { date: { gte: start, lte: end }, status: 'LATE' } }),
-      this.prisma.overtime.count({ where: { status: 'PENDING' } }),
+      this.prisma.attendance.count({ where: { ...attendanceCompanyScope, date: { gte: start, lte: end }, status: 'PRESENT' } }),
+      this.prisma.attendance.count({ where: { ...attendanceCompanyScope, date: { gte: start, lte: end }, status: 'LATE' } }),
+      this.prisma.overtime.count({ where: { ...(companyId ? { employee: { companyId } } : {}), status: 'PENDING' } }),
     ]);
 
     return {
@@ -78,10 +80,10 @@ export class DashboardService {
 
   async manager(actor: AuthUser): Promise<Record<string, unknown>> {
     const { start, end } = this.todayRange();
-    const scope = actor.managerId ? { managerId: actor.managerId } : {};
+    const scope = { ...(actor.companyId ? { companyId: actor.companyId } : { companyId: '__none__' }), ...(actor.managerId ? { managerId: actor.managerId } : {}) };
     const reportScope = actor.managerId
-      ? { workOrder: { managerId: actor.managerId } }
-      : {};
+      ? { workOrder: { companyId: actor.companyId ?? '__none__', managerId: actor.managerId } }
+      : { workOrder: { companyId: actor.companyId ?? '__none__' } };
 
     const [
       assignedWorks,
@@ -141,7 +143,7 @@ export class DashboardService {
       };
     }
     const assignmentScope = { employeeId: employee.id };
-    const orderScope = { assignments: { some: { ...assignmentScope } } };
+    const orderScope = { companyId: actor.companyId ?? '__none__', assignments: { some: { ...assignmentScope } } };
 
     const [
       attendanceToday,

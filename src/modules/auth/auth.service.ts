@@ -14,6 +14,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { hashPassword, verifyPassword } from '../../common/utils/password.util';
 import { pickUser, SafeUser } from '../../common/utils/user.util';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EmailService } from '../../common/email/email.module';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
@@ -38,6 +39,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly config: ConfigService,
     private readonly notifications: NotificationsService,
+    private readonly email: EmailService,
   ) {}
 
   async register(dto: RegisterDto): Promise<SafeUser> {
@@ -48,6 +50,11 @@ export class AuthService {
     }
 
     const passwordHash = await hashPassword(dto.password);
+    const company = await this.prisma.company.findUnique({
+      where: { slug: dto.companySlug?.trim().toLowerCase() || 'default' },
+      select: { id: true, isActive: true },
+    });
+    if (!company || !company.isActive) throw new BadRequestException('Company is unavailable');
     const user = await this.prisma.user.create({
       data: {
         firstName: dto.firstName,
@@ -56,8 +63,9 @@ export class AuthService {
         phone: dto.phone,
         passwordHash,
         role: Role.CUSTOMER,
+        companyId: company.id,
         isVerified: false,
-        customer: { create: {} },
+        customer: { create: { companyId: company.id } },
       },
     });
 
@@ -77,6 +85,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
       include: {
+        company: { select: { isActive: true } },
         customer: { select: { id: true } },
         employee: {
           select: {
@@ -125,6 +134,9 @@ export class AuthService {
       });
       throw new ForbiddenException('Account is deactivated');
     }
+    if (user.companyId && !user.company?.isActive) {
+      throw new ForbiddenException('Company tenant is deactivated');
+    }
 
     if (
       user.role === Role.EMPLOYEE &&
@@ -159,7 +171,7 @@ export class AuthService {
     });
     if (user.role === Role.EMPLOYEE) {
       const recipients = await this.prisma.user.findMany({
-        where: { role: { in: [Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN] }, isActive: true },
+        where: { role: { in: [Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN] }, isActive: true, companyId: user.companyId },
         select: { id: true },
       });
       const employeeName = `${user.firstName} ${user.lastName}`.trim();
@@ -252,19 +264,21 @@ export class AuthService {
       return;
     }
 
-    const { token, expiresAt } = await this.tokens.createPasswordResetToken(user.id);
-    // No SMTP provider is in this stack; the reset link is surfaced through the
-    // structured log — swap in a mailer worker at this point for production email.
-    this.logger.warn(
-      JSON.stringify({
-        event: 'password_reset_requested',
-        userId: user.id,
-        resetToken: token,
-        expiresAt: expiresAt.toISOString(),
-      }),
-    );
+    const { otp, expiresAt } = await this.tokens.createPasswordResetOtp(user.id);
+    try {
+      await this.email.sendPasswordResetOtp({
+        email: user.email,
+        firstName: user.firstName,
+        otp,
+        expiresMinutes: 10,
+      });
+    } catch (error) {
+      // Never log an OTP, reset token, or email address. The generic response
+      // prevents account enumeration even when the SMTP provider is unavailable.
+      this.logger.error(JSON.stringify({ event: 'password_reset_email_delivery_failed', userId: user.id, error: String(error) }));
+    }
     await this.audit.log({
-      action: 'FORGOT_PASSWORD',
+      action: 'PASSWORD_RESET_OTP_REQUESTED',
       module: 'auth',
       entity: 'User',
       entityId: user.id,
@@ -273,9 +287,15 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto): Promise<void> {
-    const userId = await this.tokens.consumePasswordResetToken(dto.token);
+    let userId: string | null = null;
+    if (dto.token) {
+      userId = await this.tokens.consumePasswordResetToken(dto.token);
+    } else if (dto.email && dto.otp) {
+      const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+      if (user?.isActive && await this.tokens.consumePasswordResetOtp(user.id, dto.otp)) userId = user.id;
+    }
     if (!userId) {
-      throw new BadRequestException('Invalid or expired reset token');
+      throw new BadRequestException('Invalid or expired reset code');
     }
     const passwordHash = await hashPassword(dto.newPassword);
     await this.prisma.user.update({

@@ -14,6 +14,7 @@ import {
   safeOrderBy,
 } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
+import { AuthUser } from '../../common/types/auth.types';
 import { CreateManagerDto, ListManagersDto, UpdateManagerDto } from './dto/managers.dto';
 
 const managerSelect = {
@@ -37,9 +38,10 @@ export class ManagersService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(query: ListManagersDto): Promise<PaginatedResult<unknown>> {
+  async list(query: ListManagersDto, actor: AuthUser): Promise<PaginatedResult<unknown>> {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
     const where: Prisma.ManagerWhereInput = {
+      companyId: actor.role === Role.SUPER_ADMIN ? undefined : actor.companyId ?? '__none__',
       user: {
         role: Role.MANAGER,
         ...(search
@@ -67,7 +69,14 @@ export class ManagersService {
     return paginated(items, page, limit, total);
   }
 
-  async create(dto: CreateManagerDto, actorId: string): Promise<unknown> {
+  async create(dto: CreateManagerDto, actor: AuthUser): Promise<unknown> {
+    const companyId = actor.role === Role.SUPER_ADMIN ? dto.companyId : actor.companyId;
+    if (!companyId || !await this.prisma.company.findFirst({ where: { id: companyId, isActive: true }, select: { id: true } })) {
+      throw new BadRequestException('An active company is required to create a manager');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && dto.companyId && dto.companyId !== actor.companyId) {
+      throw new BadRequestException('You cannot create managers in another company');
+    }
     const email = dto.email.toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException('An account with this email already exists');
@@ -76,6 +85,7 @@ export class ManagersService {
     const manager = await this.prisma.manager.create({
       data: {
         title: dto.title,
+        company: { connect: { id: companyId } },
         joinedAt: new Date(),
         user: {
           create: {
@@ -85,6 +95,7 @@ export class ManagersService {
             phone: dto.phone,
             passwordHash,
             role: Role.MANAGER,
+            companyId,
             isVerified: true,
           },
         },
@@ -97,20 +108,20 @@ export class ManagersService {
       module: 'managers',
       entity: 'Manager',
       entityId: manager.id,
-      userId: actorId,
+      userId: actor.id,
       newValues: { email },
     });
     return manager;
   }
 
-  async getById(id: string): Promise<unknown> {
-    const manager = await this.prisma.manager.findUnique({ where: { id }, select: managerSelect });
+  async getById(id: string, actor?: AuthUser): Promise<unknown> {
+    const manager = await this.prisma.manager.findFirst({ where: { id, ...(actor && actor.role !== Role.SUPER_ADMIN ? { companyId: actor.companyId ?? '__none__' } : {}) }, select: managerSelect });
     if (!manager) throw new NotFoundException('Manager not found');
     return manager;
   }
 
-  async update(id: string, dto: UpdateManagerDto, actorId: string): Promise<unknown> {
-    const manager = await this.prisma.manager.findUnique({ where: { id } });
+  async update(id: string, dto: UpdateManagerDto, actor: AuthUser): Promise<unknown> {
+    const manager = await this.prisma.manager.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!manager) throw new NotFoundException('Manager not found');
 
     const { isActive, title, ...userFields } = dto;
@@ -134,14 +145,14 @@ export class ManagersService {
       module: 'managers',
       entity: 'Manager',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       newValues: dto as Prisma.InputJsonValue,
     });
-    return this.getById(id);
+    return this.getById(id, actor);
   }
 
-  async setStatus(id: string, isActive: boolean, actorId: string): Promise<unknown> {
-    const manager = await this.prisma.manager.findUnique({ where: { id } });
+  async setStatus(id: string, isActive: boolean, actor: AuthUser): Promise<unknown> {
+    const manager = await this.prisma.manager.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!manager) throw new NotFoundException('Manager not found');
     await this.prisma.user.update({ where: { id: manager.userId }, data: { isActive } });
     await this.audit.log({
@@ -149,9 +160,9 @@ export class ManagersService {
       module: 'managers',
       entity: 'Manager',
       entityId: id,
-      userId: actorId,
+      userId: actor.id,
       newValues: { isActive },
     });
-    return this.getById(id);
+    return this.getById(id, actor);
   }
 }

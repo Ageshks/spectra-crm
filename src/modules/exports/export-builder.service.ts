@@ -124,6 +124,7 @@ export class ExportBuilderService {
       customerId: user.customer?.id,
       employeeId: user.employee?.id,
       managerId: user.manager?.id,
+      companyId: user.companyId ?? undefined,
     };
   }
 
@@ -163,6 +164,7 @@ export class ExportBuilderService {
     const dto = await this.validateFilters(ListBookingsDto, rawFilters);
     const scopedCustomerId = actor.role === Role.CUSTOMER ? actor.customerId : dto.customerId;
     const where: Prisma.BookingWhereInput = {
+      ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }),
       ...(scopedCustomerId ? { customerId: scopedCustomerId } : {}),
       ...(dto.status ? { status: dto.status } : {}),
       ...(dto.serviceId ? { serviceId: dto.serviceId } : {}),
@@ -218,6 +220,7 @@ export class ExportBuilderService {
   ): Promise<FetchResult> {
     const dto = await this.validateFilters(ListWorkOrdersDto, rawFilters);
     const and: Prisma.WorkOrderWhereInput[] = [];
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ companyId: actor.companyId ?? '__none__' });
     if (dto.status) and.push({ status: dto.status });
     if (dto.priority) and.push({ priority: dto.priority });
     if (dto.customerId) and.push({ customerId: dto.customerId });
@@ -285,6 +288,7 @@ export class ExportBuilderService {
   ): Promise<FetchResult> {
     const dto = await this.validateFilters(ListAttendanceDto, rawFilters);
     const and: Prisma.AttendanceWhereInput[] = [];
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ OR: [{ employee: { companyId: actor.companyId ?? '__none__' } }, { manager: { companyId: actor.companyId ?? '__none__' } }] });
     if (actor.role === Role.EMPLOYEE || actor.role === Role.MANAGER) {
       and.push(await this.resolveStaffWhere(actor));
     } else {
@@ -354,6 +358,7 @@ export class ExportBuilderService {
   ): Promise<FetchResult> {
     const dto = await this.validateFilters(ListOvertimeDto, rawFilters);
     const and: Prisma.OvertimeWhereInput[] = [];
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ employee: { companyId: actor.companyId ?? '__none__' } });
     if (actor.role === Role.EMPLOYEE) {
       and.push({ employeeId: await this.attendance.resolveEmployeeId(actor) });
     } else if (dto.employeeId) {
@@ -411,6 +416,7 @@ export class ExportBuilderService {
   ): Promise<FetchResult> {
     const dto = await this.validateFilters(ListLeaveDto, rawFilters);
     const and: Prisma.LeaveWhereInput[] = [];
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ employee: { companyId: actor.companyId ?? '__none__' } });
     if (actor.role === Role.EMPLOYEE) {
       and.push({ employeeId: await this.attendance.resolveEmployeeId(actor) });
     } else if (dto.employeeId) {
@@ -455,6 +461,7 @@ export class ExportBuilderService {
   ): Promise<FetchResult> {
     const dto = await this.validateFilters(ListServiceReportsDto, rawFilters);
     const and: Prisma.ServiceReportWhereInput[] = [];
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ workOrder: { companyId: actor.companyId ?? '__none__' } });
     if (dto.status) and.push({ status: dto.status });
     if (dto.workOrderId) and.push({ workOrderId: dto.workOrderId });
     if (dto.employeeId) and.push({ employeeId: dto.employeeId });
@@ -512,6 +519,7 @@ export class ExportBuilderService {
     const dto = await this.validateFilters(ListEnquiriesDto, rawFilters);
     const scopeFilter = actor.role === Role.MANAGER ? { OR: [{ assignedManagerId: actor.id }, { assignedManagerId: null }] } : {};
     const where: Prisma.EnquiryWhereInput = {
+      ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }),
       ...(dto.status ? { status: dto.status } : {}),
       ...(dto.assignedManagerId ? { assignedManagerId: dto.assignedManagerId } : {}),
       ...scopeFilter,
@@ -560,6 +568,7 @@ export class ExportBuilderService {
   ): Promise<FetchResult> {
     const dto = await this.validateFilters(ListCustomersDto, rawFilters);
     const where: Prisma.CustomerWhereInput = {
+      ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
     };
     const items = await this.prisma.customer.findMany({

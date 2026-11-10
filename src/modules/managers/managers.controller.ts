@@ -18,23 +18,23 @@ export class ManagersController {
   @Get()
   @ApiOperation({ summary: 'List managers' })
   @ResponseMessage('Managers retrieved')
-  list(@Query() query: ListManagersDto) {
-    return this.managers.list(query);
+  list(@CurrentUser() user: AuthUser, @Query() query: ListManagersDto) {
+    return this.managers.list(query, user);
   }
 
   @Post()
   @ApiOperation({ summary: 'Create a manager account' })
   @ResponseMessage('Manager created')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateManagerDto) {
-    return this.managers.create(dto, user.id);
+    return this.managers.create(dto, user);
   }
 
   @Get(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Get a manager' })
   @ResponseMessage('Manager retrieved')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.managers.getById(id);
+  get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.managers.getById(id, user);
   }
 
   @Patch(':id')
@@ -46,7 +46,7 @@ export class ManagersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateManagerDto,
   ) {
-    return this.managers.update(id, dto, user.id);
+    return this.managers.update(id, dto, user);
   }
 
   @Patch(':id/status')
@@ -58,6 +58,6 @@ export class ManagersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: { isActive: boolean },
   ) {
-    return this.managers.setStatus(id, dto.isActive, user.id);
+    return this.managers.setStatus(id, dto.isActive, user);
   }
 }

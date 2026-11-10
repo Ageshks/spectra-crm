@@ -29,6 +29,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AuthUser } from '../../common/types/auth.types';
 import {
   CreateServiceReportDto,
+  CreateReportLocationDto,
   ListServiceReportsDto,
   ReportDecisionDto,
   UpdateServiceReportDto,
@@ -51,6 +52,10 @@ const reportInclude = {
     },
   },
   photos: { select: { id: true, imageUrl: true, thumbnailUrl: true, caption: true } },
+  locations: {
+    orderBy: { recordedAt: 'asc' },
+    select: { id: true, latitude: true, longitude: true, capturedAt: true, recordedAt: true },
+  },
 } satisfies Prisma.ServiceReportInclude;
 
 @Injectable()
@@ -84,17 +89,27 @@ export class ServiceReportsService {
         throw new ForbiddenException('Only approved reports are visible to customers');
       }
     }
+    if (actor.role === Role.MANAGER && report.workOrder.managerId !== actor.managerId) {
+      throw new ForbiddenException('You are not authorized to access this report');
+    }
+    if (actor.role !== Role.SUPER_ADMIN && report.workOrder.companyId !== actor.companyId) {
+      throw new ForbiddenException('Report is outside your company');
+    }
   }
 
   private async requireAssignedEmployee(workOrderId: string, actor: AuthUser): Promise<string> {
-    if (!actor.employeeId) throw new ForbiddenException('Employee profile required');
+    const employee = await this.prisma.employee.findUnique({
+      where: { userId: actor.id },
+      select: { id: true },
+    });
+    if (!employee) throw new ForbiddenException('Employee profile required for this account');
     const assignment = await this.prisma.workAssignment.findFirst({
-      where: { workOrderId, employeeId: actor.employeeId },
+      where: { workOrderId, employeeId: employee.id },
     });
     if (!assignment) {
       throw new ForbiddenException('You are not assigned to this work order');
     }
-    return actor.employeeId;
+    return employee.id;
   }
 
   async list(
@@ -109,6 +124,10 @@ export class ServiceReportsService {
     if (actor.role === Role.EMPLOYEE) {
       and.push({ employee: { userId: actor.id } });
     }
+    if (actor.role === Role.MANAGER) {
+      and.push({ workOrder: { managerId: actor.managerId ?? '__none__' } });
+    }
+    if (actor.role !== Role.SUPER_ADMIN) and.push({ workOrder: { companyId: actor.companyId ?? '__none__' } });
     if (actor.role === Role.CUSTOMER) {
       // Rule #9: customers only ever see approved reports of their own orders.
       and.push({ status: ServiceReportStatus.APPROVED });
@@ -149,6 +168,7 @@ export class ServiceReportsService {
     const employeeId = await this.requireAssignedEmployee(dto.workOrderId, actor);
     const workOrder = await this.prisma.workOrder.findUnique({ where: { id: dto.workOrderId } });
     if (!workOrder) throw new NotFoundException('Work order not found');
+    if (workOrder.companyId !== actor.companyId) throw new ForbiddenException('Work order is outside your company');
     if (
       workOrder.status !== WorkOrderStatus.COMPLETED &&
       workOrder.status !== WorkOrderStatus.UNDER_REVIEW &&
@@ -169,8 +189,8 @@ export class ServiceReportsService {
         reportNumber,
         workOrderId: workOrder.id,
         employeeId,
-        workSummary: dto.workSummary,
-        workPerformed: dto.workPerformed,
+        workSummary: dto.workSummary ?? '',
+        workPerformed: dto.workPerformed ?? '',
         issuesFound: dto.issuesFound,
         materialsUsed: dto.materialsUsed,
         recommendations: dto.recommendations,
@@ -209,7 +229,6 @@ export class ServiceReportsService {
         `A ${report.status} report can no longer be edited`,
       );
     }
-
     const updated = await this.prisma.serviceReport.update({
       where: { id },
       data: dto,
@@ -226,6 +245,42 @@ export class ServiceReportsService {
     return updated;
   }
 
+  async deleteDraft(id: string, actor: AuthUser): Promise<{ deleted: true }> {
+    const report = await this.load(id);
+    this.assertAccess(report, actor);
+    if (report.status !== ServiceReportStatus.DRAFT) {
+      throw new BadRequestException('Only draft reports can be deleted');
+    }
+    await this.prisma.serviceReport.delete({ where: { id } });
+    await this.audit.log({
+      action: 'DELETE_SERVICE_REPORT_DRAFT',
+      module: 'service-reports',
+      entity: 'ServiceReport',
+      entityId: id,
+      userId: actor.id,
+      oldValues: { status: report.status },
+    });
+    return { deleted: true };
+  }
+
+  async addLocation(id: string, dto: CreateReportLocationDto, actor: AuthUser): Promise<unknown> {
+    const report = await this.load(id);
+    this.assertAccess(report, actor);
+    if (actor.role !== Role.EMPLOYEE || report.employee.user.id !== actor.id) {
+      throw new ForbiddenException('Only the assigned employee can record report GPS locations');
+    }
+    return this.prisma.serviceReportLocation.create({
+      data: {
+        serviceReportId: report.id,
+        submittedById: actor.id,
+        latitude: new Prisma.Decimal(dto.latitude),
+        longitude: new Prisma.Decimal(dto.longitude),
+        capturedAt: dto.capturedAt ? new Date(dto.capturedAt) : undefined,
+      },
+      select: { id: true, serviceReportId: true, latitude: true, longitude: true, capturedAt: true, recordedAt: true },
+    });
+  }
+
   /** Employee submits (or resubmits after corrections) the report. */
   async submit(id: string, actor: AuthUser, dto: ReportDecisionDto): Promise<unknown> {
     const report = await this.load(id);
@@ -235,6 +290,9 @@ export class ServiceReportsService {
       report.status !== ServiceReportStatus.CORRECTION_REQUIRED
     ) {
       throw new BadRequestException(`A ${report.status} report cannot be submitted`);
+    }
+    if (!report.workSummary.trim() || !report.workPerformed.trim()) {
+      throw new BadRequestException('workSummary and workPerformed are required before submission');
     }
 
     const wasCorrection = report.status === ServiceReportStatus.CORRECTION_REQUIRED;
@@ -308,6 +366,7 @@ export class ServiceReportsService {
   /** Manager approves a submitted report (rule #7). */
   async approve(id: string, actor: AuthUser, dto: ReportDecisionDto): Promise<unknown> {
     const report = await this.load(id);
+    this.assertAccess(report, actor);
     if (
       report.status !== ServiceReportStatus.SUBMITTED &&
       report.status !== ServiceReportStatus.UNDER_REVIEW
@@ -380,6 +439,7 @@ export class ServiceReportsService {
   /** Manager requests corrections (rule #8); employee gets a push notification. */
   async requestCorrection(id: string, actor: AuthUser, dto: ReportDecisionDto): Promise<unknown> {
     const report = await this.load(id);
+    this.assertAccess(report, actor);
     if (
       report.status !== ServiceReportStatus.SUBMITTED &&
       report.status !== ServiceReportStatus.UNDER_REVIEW

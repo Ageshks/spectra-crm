@@ -42,8 +42,8 @@ export class EmployeesController {
   @Roles(Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'List employees (search, filter, paginate)' })
   @ResponseMessage('Employees retrieved')
-  list(@Query() query: ListEmployeesDto) {
-    return this.employees.list(query);
+  list(@CurrentUser() user: AuthUser, @Query() query: ListEmployeesDto) {
+    return this.employees.list(query, user);
   }
 
   @Get('transfer-targets')
@@ -59,7 +59,7 @@ export class EmployeesController {
   @ApiOperation({ summary: 'Create an employee account' })
   @ResponseMessage('Employee created')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateEmployeeDto) {
-    return this.employees.create(dto, user.id);
+    return this.employees.create(dto, user);
   }
 
   @Get(':id')
@@ -67,8 +67,8 @@ export class EmployeesController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Get an employee' })
   @ResponseMessage('Employee retrieved')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.employees.getById(id);
+  get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.employees.getById(id, user);
   }
 
   @Patch(':id')
@@ -81,7 +81,7 @@ export class EmployeesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateEmployeeDto,
   ) {
-    return this.employees.update(id, dto, user.id);
+    return this.employees.update(id, dto, user);
   }
 
   @Patch(':id/status')
@@ -94,7 +94,7 @@ export class EmployeesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: { isActive: boolean },
   ) {
-    return this.employees.setStatus(id, dto.isActive, user.id);
+    return this.employees.setStatus(id, dto.isActive, user);
   }
 
   @Get(':id/work-orders')
@@ -102,8 +102,8 @@ export class EmployeesController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Work assigned to an employee' })
   @ResponseMessage('Assigned work retrieved')
-  assignedWork(@Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
-    return this.employees.assignedWork(id, query);
+  assignedWork(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
+    return this.employees.assignedWork(id, query, user);
   }
 
   @Get(':id/attendance')
@@ -111,8 +111,8 @@ export class EmployeesController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Attendance records of an employee' })
   @ResponseMessage('Attendance retrieved')
-  attendance(@Param('id', ParseUUIDPipe) id: string, @Query() query: RangeQueryDto) {
-    return this.employees.attendance(id, query);
+  attendance(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() query: RangeQueryDto) {
+    return this.employees.attendance(id, query, user);
   }
 
   @Get(':id/overtime')
@@ -120,8 +120,8 @@ export class EmployeesController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Overtime records of an employee' })
   @ResponseMessage('Overtime retrieved')
-  overtime(@Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
-    return this.employees.overtimes(id, query);
+  overtime(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
+    return this.employees.overtimes(id, query, user);
   }
 
   @Get(':id/leave')
@@ -129,8 +129,8 @@ export class EmployeesController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Leave records of an employee' })
   @ResponseMessage('Leave retrieved')
-  leave(@Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
-    return this.employees.leaves(id, query);
+  leave(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
+    return this.employees.leaves(id, query, user);
   }
 
   @Get(':id/reports')
@@ -138,8 +138,8 @@ export class EmployeesController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOperation({ summary: 'Service reports submitted by an employee' })
   @ResponseMessage('Reports retrieved')
-  reports(@Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
-    return this.employees.reports(id, query);
+  reports(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() query: PaginationDto) {
+    return this.employees.reports(id, query, user);
   }
 
   @Delete(':id')
@@ -148,6 +148,6 @@ export class EmployeesController {
   @ApiOperation({ summary: 'Remove an employee (hard delete when safe, otherwise deactivate)' })
   @ResponseMessage('Employee removed')
   remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.employees.remove(id, user.id);
+    return this.employees.remove(id, user);
   }
 }

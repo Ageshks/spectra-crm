@@ -32,6 +32,12 @@ const first = (names: string[], fallback: string): string => {
 };
 
 async function main(): Promise<void> {
+  const company = await prisma.company.upsert({
+    where: { slug: 'default' },
+    update: { isActive: true },
+    create: { name: 'Default Company', slug: 'default' },
+    select: { id: true },
+  });
   for (const name of DEFAULT_DESIGNATIONS) {
     const isFieldAppEligible = ['Field Technician', 'Temp Staff'].includes(name);
     const existing = await prisma.designation.findFirst({
@@ -56,13 +62,14 @@ async function main(): Promise<void> {
   const passwordHash = await argon2.hash(adminPassword, { type: argon2.argon2id });
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: { role: Role.ADMIN, isActive: true },
+    update: { role: Role.ADMIN, isActive: true, companyId: company.id },
     create: {
       firstName: adminFirst,
       lastName: adminLast,
       email: adminEmail,
       passwordHash,
       role: Role.ADMIN,
+      companyId: company.id,
       isActive: true,
       isVerified: true,
     },

@@ -35,3 +35,4 @@ describe('WorkOrderStatusService', () => {
     expect(canTransition(WorkOrderStatus.ASSIGNED, WorkOrderStatus.APPROVED)).toBe(false);
   });
 });
+import { describe, expect, it } from '@jest/globals';
