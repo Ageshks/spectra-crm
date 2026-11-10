@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { OvertimeStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -21,6 +21,14 @@ export class CreateOvertimeDto {
   @IsString()
   @MaxLength(1000)
   reason?: string;
+
+  /** Required when attendance was automatically closed at the 8-hour mark. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(720)
+  requestedMinutes?: number;
 }
 
 export class OvertimeDecisionDto {

@@ -91,10 +91,10 @@ export class CustomersController {
   @Post(':id/password-reset')
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Email a password reset OTP to the customer' })
-  @ResponseMessage('If the customer account is active, a password reset code has been sent')
+  @ResponseMessage('Password reset code sent to the customer email')
   async requestPasswordReset(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    const customer = await this.customers.getById(id, user) as { user: { email: string } };
-    await this.auth.forgotPassword({ email: customer.user.email });
+    const customer = await this.customers.getById(id, user) as { user: { id: string } };
+    await this.auth.sendPasswordResetOtpForUser(customer.user.id, user.id);
     return null;
   }
 

@@ -35,6 +35,14 @@ export class OvertimeController {
     return this.overtime.list(query, user);
   }
 
+  @Get('eligibility/today')
+  @Roles(Role.EMPLOYEE)
+  @ApiOperation({ summary: "Check whether the current employee can request overtime today" })
+  @ResponseMessage('Overtime eligibility retrieved')
+  eligibilityToday(@CurrentUser() user: AuthUser) {
+    return this.overtime.eligibilityToday(user);
+  }
+
   @Get(':id')
   @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
   @ApiParam({ name: 'id', format: 'uuid' })

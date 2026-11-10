@@ -24,6 +24,10 @@ export class EmailService {
     }
   }
 
+  isConfigured(): boolean {
+    return !!this.transport && !!this.from;
+  }
+
   async sendPasswordResetOtp(input: { email: string; firstName: string; otp: string; expiresMinutes: number }): Promise<void> {
     if (!this.transport || !this.from) throw new Error('SMTP is not configured');
     await this.transport.sendMail({

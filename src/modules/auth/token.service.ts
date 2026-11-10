@@ -155,6 +155,13 @@ export class TokenService {
     return { otp, expiresAt };
   }
 
+  async invalidatePasswordResetOtp(userId: string): Promise<void> {
+    await this.prisma.passwordResetToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+  }
+
   async consumePasswordResetOtp(userId: string, otp: string): Promise<boolean> {
     const now = new Date();
     const record = await this.prisma.passwordResetToken.findFirst({

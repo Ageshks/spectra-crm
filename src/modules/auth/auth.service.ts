@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -283,6 +284,30 @@ export class AuthService {
       entity: 'User',
       entityId: user.id,
       userId: user.id,
+    });
+  }
+
+  async sendPasswordResetOtpForUser(userId: string, requestedById: string): Promise<void> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, isActive: true },
+      select: { id: true, email: true, firstName: true },
+    });
+    if (!user) throw new NotFoundException('Active customer account not found');
+    if (!this.email.isConfigured()) {
+      throw new ServiceUnavailableException('Email delivery is not configured. Set SMTP_HOST and SMTP_FROM, then restart the backend.');
+    }
+
+    const { otp } = await this.tokens.createPasswordResetOtp(user.id);
+    try {
+      await this.email.sendPasswordResetOtp({ email: user.email, firstName: user.firstName, otp, expiresMinutes: 10 });
+    } catch (error) {
+      await this.tokens.invalidatePasswordResetOtp(user.id);
+      this.logger.error(JSON.stringify({ event: 'admin_password_reset_email_delivery_failed', userId: user.id, error: String(error) }));
+      throw new ServiceUnavailableException('Email provider could not deliver the reset code. Check SMTP settings and backend logs.');
+    }
+
+    await this.audit.log({
+      action: 'ADMIN_PASSWORD_RESET_OTP_SENT', module: 'auth', entity: 'User', entityId: user.id, userId: requestedById,
     });
   }
 
