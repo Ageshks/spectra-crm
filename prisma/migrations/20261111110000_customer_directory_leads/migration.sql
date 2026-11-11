@@ -1,0 +1,5 @@
+ALTER TABLE "Customer"
+  ALTER COLUMN "userId" DROP NOT NULL,
+  ADD COLUMN "contactName" VARCHAR(150),
+  ADD COLUMN "email" VARCHAR(255),
+  ADD COLUMN "phone" VARCHAR(20);

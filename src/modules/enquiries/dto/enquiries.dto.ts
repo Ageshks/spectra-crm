@@ -1,5 +1,6 @@
+import { Transform } from 'class-transformer';
 import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
-import { EnquiryStatus } from '@prisma/client';
+import { EnquiryStatus, WorkOrderPriority } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateEnquiryDto {
@@ -14,6 +15,7 @@ export class CreateEnquiryDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
+  @Transform(({ value, obj }) => value ?? obj.contactName)
   name!: string;
 
   @Matches(/^\+?[0-9][0-9\s\-]{6,14}[0-9]$/, { message: 'phone must be a valid phone number' })
@@ -25,7 +27,24 @@ export class CreateEnquiryDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(150)
+  @Transform(({ value, obj }) => value ?? obj.company)
+  companyName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value, obj }) => value ?? obj.requestedService)
   serviceId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.toUpperCase();
+    if (normalized === 'MEDIUM') return WorkOrderPriority.NORMAL;
+    return normalized;
+  })
+  @IsIn(Object.values(WorkOrderPriority))
+  priority?: WorkOrderPriority;
 
   @IsOptional()
   @IsString()
@@ -34,6 +53,7 @@ export class CreateEnquiryDto {
   @IsOptional()
   @IsString()
   @MaxLength(2000)
+  @Transform(({ value, obj }) => value ?? obj.customerMessage)
   message?: string;
 }
 

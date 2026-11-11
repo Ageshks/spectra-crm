@@ -245,7 +245,9 @@ export class BillingService {
       await tx.invoiceApprovalHistory.create({ data: { invoiceId: id, action: 'FINALIZED', previousStatus: ServiceInvoiceStatus.APPROVED, newStatus: ServiceInvoiceStatus.FINALIZED, performedById: actor.id } });
       return tx.serviceInvoice.findUniqueOrThrow({ where: { id }, include: includeInvoice });
     });
-    await this.notifyUser(finalized.customer.user.id, 'Final invoice available', 'Your invoice is ready to view.', id);
+    if (finalized.customer.user) {
+      await this.notifyUser(finalized.customer.user.id, 'Final invoice available', 'Your invoice is ready to view.', id);
+    }
     await this.audit.log({ action: 'BILLING_FINALIZED', module: 'billing', entity: 'ServiceInvoice', entityId: id, userId: actor.id });
     return finalized;
   }
@@ -328,7 +330,7 @@ export class BillingService {
       return { result, adjustedTotal };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     const customer = await this.prisma.customer.findUnique({ where: { id: adjustment.invoice.customerId }, select: { userId: true } });
-    if (customer) await this.notifyUser(customer.userId, 'Invoice adjustment finalized', `Your adjusted payable amount is INR ${finalized.adjustedTotal.toFixed(2)}.`, adjustment.invoiceId);
+    if (customer?.userId) await this.notifyUser(customer.userId, 'Invoice adjustment finalized', `Your adjusted payable amount is INR ${finalized.adjustedTotal.toFixed(2)}.`, adjustment.invoiceId);
     return finalized.result;
   }
 

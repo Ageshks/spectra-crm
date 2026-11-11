@@ -423,14 +423,14 @@ export class ServiceReportsService {
         referenceType: 'serviceReport',
         referenceId: id,
       },
-      {
+      ...(report.workOrder.customer.userId ? [{
         userId: report.workOrder.customer.userId,
         title: 'Service report approved',
         message: `Your service report ${report.reportNumber} is now available`,
         type: NotificationType.REPORT_APPROVED,
         referenceType: 'serviceReport',
         referenceId: id,
-      },
+      }] : []),
     ]);
 
     return updated;

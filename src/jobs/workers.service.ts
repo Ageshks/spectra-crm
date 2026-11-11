@@ -118,7 +118,7 @@ export class WorkersService implements OnModuleInit, OnModuleDestroy {
         where: { id: schedule.customerId },
         select: { userId: true },
       });
-      if (!customer) continue;
+      if (!customer?.userId) continue;
       const dueDate = schedule.nextServiceDate.toISOString().slice(0, 10);
       try {
         await this.prisma.maintenanceReminderRecord.create({

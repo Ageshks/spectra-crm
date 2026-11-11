@@ -330,15 +330,18 @@ model PasswordResetToken {
 
 model Customer {
   id               String   @id @default(uuid()) @db.Uuid
-  userId           String   @unique @db.Uuid
+  userId           String?  @unique @db.Uuid
   companyId        String   @db.Uuid
+  contactName      String?  @db.VarChar(150)
+  email            String?  @db.VarChar(255)
+  phone            String?  @db.VarChar(20)
   organizationName String?  @db.VarChar(150)
   isActive         Boolean  @default(true)
   notes            String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                 User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   company              Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
   addresses            CustomerAddress[]
   enquiries            Enquiry[]
@@ -492,22 +495,24 @@ model Service {
 }
 
 model Enquiry {
-  id                 String        @id @default(uuid()) @db.Uuid
-  companyId          String        @db.Uuid
-  enquiryNumber      String        @unique @db.VarChar(30)
-  customerId         String?       @db.Uuid
-  name               String        @db.VarChar(150)
-  phone              String        @db.VarChar(20)
-  email              String?       @db.VarChar(255)
-  serviceId          String?       @db.Uuid
+  id                 String            @id @default(uuid()) @db.Uuid
+  companyId          String            @db.Uuid
+  enquiryNumber      String            @unique @db.VarChar(30)
+  customerId         String?           @db.Uuid
+  name               String            @db.VarChar(150)
+  companyName        String?           @db.VarChar(150)
+  phone              String            @db.VarChar(20)
+  email              String?           @db.VarChar(255)
+  serviceId          String?           @db.Uuid
+  priority           WorkOrderPriority @default(NORMAL)
   message            String?
-  serviceLocationId  String?       @db.Uuid
-  status             EnquiryStatus @default(NEW)
-  assignedManagerId  String?       @db.Uuid
-  convertedBookingId String?       @unique @db.Uuid
+  serviceLocationId  String?           @db.Uuid
+  status             EnquiryStatus     @default(NEW)
+  assignedManagerId  String?           @db.Uuid
+  convertedBookingId String?           @unique @db.Uuid
   convertedAt        DateTime?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   company          Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   customer         Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)

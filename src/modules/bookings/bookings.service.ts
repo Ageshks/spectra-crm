@@ -190,14 +190,14 @@ export class BookingsService {
         referenceType: 'booking',
         referenceId: booking.id,
       })),
-      {
+      ...(customer.userId ? [{
         userId: customer.userId,
         title: 'Booking created',
         message: `Your booking ${bookingNumber} has been received`,
         type: NotificationType.BOOKING_CREATED,
         referenceType: 'booking',
         referenceId: booking.id,
-      },
+      }] : []),
     ]);
 
     return booking;
@@ -323,10 +323,10 @@ export class BookingsService {
       newValues: { status: dto.status, cancelReason: dto.cancelReason },
     });
 
-    const customerUser = await this.prisma.user.findUnique({
+    const customerUser = booking.customer.userId ? await this.prisma.user.findUnique({
       where: { id: booking.customer.userId },
       select: { id: true },
-    });
+    }) : null;
     if (customerUser) {
       const messages: Partial<Record<BookingStatus, [string, string, NotificationType]>> = {
         [BookingStatus.CONFIRMED]: [

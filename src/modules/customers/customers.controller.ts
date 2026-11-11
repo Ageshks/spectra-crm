@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -93,7 +94,8 @@ export class CustomersController {
   @ApiOperation({ summary: 'Email a password reset OTP to the customer' })
   @ResponseMessage('Password reset code sent to the customer email')
   async requestPasswordReset(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    const customer = await this.customers.getById(id, user) as { user: { id: string } };
+    const customer = await this.customers.getById(id, user) as { user: { id: string } | null };
+    if (!customer.user) throw new BadRequestException('This customer does not have a login account');
     await this.auth.sendPasswordResetOtpForUser(customer.user.id, user.id);
     return null;
   }

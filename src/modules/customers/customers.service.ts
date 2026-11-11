@@ -34,6 +34,15 @@ const customerInclude = {
   addresses: { orderBy: { createdAt: 'desc' as const } },
 } satisfies Prisma.CustomerInclude;
 
+type IncludedCustomer = Prisma.CustomerGetPayload<{ include: typeof customerInclude }>;
+const directoryCustomer = (customer: IncludedCustomer) => ({
+  ...customer,
+  contactName: customer.contactName ?? [customer.user?.firstName, customer.user?.lastName].filter(Boolean).join(' '),
+  email: customer.email ?? customer.user?.email ?? null,
+  phone: customer.phone ?? customer.user?.phone ?? null,
+  hasLoginAccount: !!customer.userId,
+});
+
 @Injectable()
 export class CustomersService {
   constructor(
@@ -53,6 +62,10 @@ export class CustomersService {
               { user: { lastName: { contains: search, mode: 'insensitive' } } },
               { user: { email: { contains: search, mode: 'insensitive' } } },
               { user: { phone: { contains: search } } },
+              { contactName: { contains: search, mode: 'insensitive' } },
+              { email: { contains: search, mode: 'insensitive' } },
+              { phone: { contains: search } },
+              { organizationName: { contains: search, mode: 'insensitive' } },
             ],
           }
         : {}),
@@ -68,7 +81,7 @@ export class CustomersService {
       }),
       this.prisma.customer.count({ where }),
     ]);
-    return paginated(items, page, limit, total);
+    return paginated(items.map(directoryCustomer), page, limit, total);
   }
 
   async create(dto: CreateCustomerDto, actor: AuthUser): Promise<unknown> {
@@ -86,6 +99,9 @@ export class CustomersService {
         company: { connect: { id: companyId } },
         notes: dto.notes,
         organizationName: dto.organizationName,
+        contactName: `${dto.firstName} ${dto.lastName}`.trim(),
+        email,
+        phone: dto.phone,
         user: {
           create: {
             firstName: dto.firstName,
@@ -111,7 +127,7 @@ export class CustomersService {
       userId: actor.id,
       newValues: { email, firstName: dto.firstName, lastName: dto.lastName },
     });
-    return customer;
+    return directoryCustomer(customer);
   }
 
   async getById(id: string, actor?: AuthUser): Promise<unknown> {
@@ -120,7 +136,7 @@ export class CustomersService {
       include: customerInclude,
     });
     if (!customer) throw new NotFoundException('Customer not found');
-    return customer;
+    return directoryCustomer(customer);
   }
 
   async getByUserId(userId: string): Promise<unknown> {
@@ -129,7 +145,7 @@ export class CustomersService {
       include: customerInclude,
     });
     if (!customer) throw new NotFoundException('Customer profile not found');
-    return customer;
+    return directoryCustomer(customer);
   }
 
   async updateByUserId(userId: string, dto: UpdateCustomerDto, actorId: string): Promise<unknown> {
@@ -137,6 +153,7 @@ export class CustomersService {
     if (!customer) throw new NotFoundException('Customer profile not found');
 
     const { notes, organizationName, ...userFields } = dto;
+    const [oldFirst = '', ...oldLastParts] = (customer.contactName ?? '').split(/\s+/);
     const email = userFields.email?.trim().toLowerCase();
     if (email && email !== (await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email) {
       const emailClash = await this.prisma.user.findUnique({ where: { email } });
@@ -153,7 +170,13 @@ export class CustomersService {
       this.prisma.user.update({ where: { id: userId }, data: { ...userFields, ...(email ? { email } : {}) } }),
       this.prisma.customer.update({
         where: { id: customer.id },
-        data: { notes: notes ?? undefined, organizationName: organizationName ?? undefined },
+        data: {
+          notes: notes ?? undefined,
+          organizationName: organizationName ?? undefined,
+          contactName: [userFields.firstName ?? oldFirst, userFields.lastName ?? oldLastParts.join(' ')].filter(Boolean).join(' ') || undefined,
+          email: email ?? undefined,
+          phone: userFields.phone ?? undefined,
+        },
       }),
     ]);
 
@@ -171,7 +194,26 @@ export class CustomersService {
   async updateAdmin(id: string, dto: UpdateCustomerDto, actor: AuthUser): Promise<unknown> {
     const customer = await this.prisma.customer.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!customer) throw new NotFoundException('Customer not found');
-    await this.updateByUserId(customer.userId, dto, actor.id);
+    if (customer.userId) {
+      await this.updateByUserId(customer.userId, dto, actor.id);
+    } else {
+      const [oldFirst = '', ...oldLastParts] = (customer.contactName ?? '').split(/\s+/);
+      const contactName = dto.firstName !== undefined || dto.lastName !== undefined
+        ? `${dto.firstName ?? oldFirst} ${dto.lastName ?? oldLastParts.join(' ')}`.trim()
+        : undefined;
+      const email = dto.email?.trim().toLowerCase();
+      await this.prisma.customer.update({
+        where: { id },
+        data: {
+          ...(contactName !== undefined ? { contactName } : {}),
+          ...(email !== undefined ? { email } : {}),
+          ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+          ...(dto.organizationName !== undefined ? { organizationName: dto.organizationName } : {}),
+          ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        },
+      });
+      await this.audit.log({ action: 'UPDATE_CUSTOMER', module: 'customers', entity: 'Customer', entityId: id, userId: actor.id, newValues: dto as Prisma.InputJsonValue });
+    }
     return this.getById(id, actor);
   }
 
@@ -324,7 +366,7 @@ export class CustomersService {
     if (references > 0) {
       await this.prisma.$transaction([
         this.prisma.customer.update({ where: { id }, data: { isActive: false } }),
-        this.prisma.user.update({ where: { id: existing.userId }, data: { isActive: false } }),
+        ...(existing.userId ? [this.prisma.user.update({ where: { id: existing.userId }, data: { isActive: false } })] : []),
       ]);
       await this.audit.log({
         action: 'DEACTIVATE_CUSTOMER',
@@ -340,7 +382,7 @@ export class CustomersService {
 
     await this.prisma.$transaction([
       this.prisma.customer.delete({ where: { id } }),
-      this.prisma.user.delete({ where: { id: existing.userId } }),
+      ...(existing.userId ? [this.prisma.user.delete({ where: { id: existing.userId } })] : []),
     ]);
     await this.audit.log({
       action: 'DELETE_CUSTOMER',

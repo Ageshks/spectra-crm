@@ -114,10 +114,17 @@ export class EnquiriesService {
       if (!customer) throw new BadRequestException('Customer does not exist');
       if (customer.companyId !== companyId) throw new ForbiddenException('Customer is outside this company');
     }
+    let serviceId: string | undefined;
     if (dto.serviceId) {
-      const service = await this.prisma.service.findUnique({ where: { id: dto.serviceId } });
+      const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(dto.serviceId);
+      const service = looksLikeUuid
+        ? await this.prisma.service.findUnique({ where: { id: dto.serviceId } })
+        : await this.prisma.service.findFirst({
+          where: { companyId, name: { equals: dto.serviceId.trim(), mode: 'insensitive' }, isActive: true },
+        });
       if (!service) throw new BadRequestException('Service does not exist');
       if (service.companyId !== companyId) throw new BadRequestException('Service is outside this company');
+      serviceId = service.id;
     }
     if (dto.serviceLocationId) {
       const address = await this.prisma.customerAddress.findUnique({
@@ -133,6 +140,35 @@ export class EnquiriesService {
       customerId ??= address.customerId;
     }
 
+    // An enquiry is also a directory customer record, but it does not create
+    // credentials or a login account. Reuse a matching company customer where possible.
+    if (!customerId) {
+      const email = dto.email?.trim().toLowerCase();
+      const matchingCustomer = await this.prisma.customer.findFirst({
+        where: {
+          companyId,
+          OR: [
+            { phone: dto.phone },
+            ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
+            { user: { is: { phone: dto.phone } } },
+            ...(email ? [{ user: { is: { email: { equals: email, mode: 'insensitive' as const } } } }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      const customer = matchingCustomer ?? await this.prisma.customer.create({
+        data: {
+          companyId,
+          contactName: dto.name,
+          phone: dto.phone,
+          email,
+          organizationName: dto.companyName?.trim() || undefined,
+        },
+        select: { id: true },
+      });
+      customerId = customer.id;
+    }
+
     const enquiryNumber = await this.sequences.next('ENQ');
     const enquiry = await this.prisma.enquiry.create({
       data: {
@@ -140,9 +176,11 @@ export class EnquiriesService {
         enquiryNumber,
         customerId,
         name: dto.name,
+        companyName: dto.companyName?.trim() || undefined,
         phone: dto.phone,
         email: dto.email,
-        serviceId: dto.serviceId,
+        serviceId,
+        priority: dto.priority ?? WorkOrderPriority.NORMAL,
         serviceLocationId: dto.serviceLocationId,
         message: dto.message,
         status: EnquiryStatus.NEW,
@@ -422,7 +460,7 @@ export class EnquiriesService {
             serviceId,
             serviceLocationId,
             createdById: actorId,
-            priority: dto.priority ?? WorkOrderPriority.NORMAL,
+            priority: dto.priority ?? enquiry.priority,
             scheduledDate,
             scheduledStartTime,
             scheduledEndTime,
@@ -484,14 +522,16 @@ export class EnquiriesService {
       },
     });
 
-    await this.notifications.notify({
-      userId: customer.userId,
-      title: 'Booking received',
-      message: `Your booking ${bookingNumber} has been created`,
-      type: NotificationType.BOOKING_CREATED,
-      referenceType: 'booking',
-      referenceId: result.booking.id,
-    });
+    if (customer.userId) {
+      await this.notifications.notify({
+        userId: customer.userId,
+        title: 'Booking received',
+        message: `Your booking ${bookingNumber} has been created`,
+        type: NotificationType.BOOKING_CREATED,
+        referenceType: 'booking',
+        referenceId: result.booking.id,
+      });
+    }
 
     if (result.workOrder) {
       const assigneeNotifications = [
