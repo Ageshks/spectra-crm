@@ -75,19 +75,6 @@ export class CreateEnquiryDto {
   @MaxLength(2000)
   customerMessage?: string;
 
-  /** Explicit customer first name; falls back to the enquiry contact name. */
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
-  customerFirstName?: string;
-
-  /** Explicit customer last name; falls back to the remaining contact-name parts. */
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
-  customerLastName?: string;
 }
 
 export class AssignEnquiryDto {

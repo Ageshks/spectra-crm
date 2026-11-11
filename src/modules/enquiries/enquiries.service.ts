@@ -1,11 +1,9 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
 import {
   BookingStatus,
   EnquiryStatus,
@@ -27,7 +25,6 @@ import {
 import { SequenceService } from '../../common/sequence/sequence.module';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthUser } from '../../common/types/auth.types';
-import { hashPassword } from '../../common/utils/password.util';
 import {
   AssignEnquiryDto,
   CreateEnquiryDto,
@@ -149,24 +146,17 @@ export class EnquiriesService {
     }
 
     const email = dto.email.trim().toLowerCase();
-    const nameParts = name.trim().split(/\s+/);
-    const firstName = dto.customerFirstName || nameParts[0] || '';
-    const lastName = dto.customerLastName ?? nameParts.slice(1).join(' ');
-    const matchingUser = await this.prisma.user.findMany({
-      where: { OR: [{ email }, { phone: dto.phone }] },
-      select: { id: true },
-    });
     let existingCustomer = customerId
       ? await this.prisma.customer.findFirst({
           where: { id: customerId, companyId },
-          select: { id: true, userId: true },
+          select: { id: true },
         })
       : null;
     if (customerId && !existingCustomer) {
       throw new BadRequestException('Customer does not exist in this company');
     }
 
-    // Reuse a matching directory record and its existing login when possible.
+    // Link a matching customer record if one exists, but do not create one here.
     if (!customerId) {
       const matchingCustomer = await this.prisma.customer.findFirst({
         where: {
@@ -178,83 +168,28 @@ export class EnquiriesService {
             ...(email ? [{ user: { is: { email: { equals: email, mode: 'insensitive' as const } } } }] : []),
           ],
         },
-        select: { id: true, userId: true },
+        select: { id: true },
       });
-      if (!matchingCustomer && matchingUser.length) {
-        throw new ConflictException('Email or phone number is already linked to another account');
-      }
       existingCustomer = matchingCustomer;
       customerId = matchingCustomer?.id;
     }
 
-    if (!existingCustomer) {
-      if (matchingUser.length) {
-        throw new ConflictException('Email or phone number is already linked to another account');
-      }
-    }
-    if (matchingUser.some((user) => user.id !== existingCustomer?.userId)) {
-      throw new ConflictException('Email or phone number is already linked to another account');
-    }
-    const newUserData = existingCustomer?.userId
-      ? undefined
-      : {
-          firstName,
-          lastName,
-          email,
-          phone: dto.phone,
-          passwordHash: await hashPassword(randomBytes(32).toString('base64url')),
-          role: Role.CUSTOMER,
-          companyId,
-          isVerified: false,
-        };
-
     const enquiryNumber = await this.sequences.next('ENQ');
-    const enquiry = await this.prisma.$transaction(async (tx) => {
-      let linkedCustomerId = existingCustomer?.id;
-      if (!linkedCustomerId) {
-        if (!newUserData) throw new ConflictException('Unable to create the customer login account');
-        const customer = await tx.customer.create({
-          data: {
-            company: { connect: { id: companyId } },
-            contactName: name,
-            phone: dto.phone,
-            email,
-            organizationName: companyName?.trim() || undefined,
-            user: { create: newUserData },
-          },
-          select: { id: true },
-        });
-        linkedCustomerId = customer.id;
-      } else if (!existingCustomer?.userId) {
-        if (!newUserData) throw new ConflictException('Unable to create the customer login account');
-        await tx.customer.update({
-          where: { id: linkedCustomerId },
-          data: {
-            contactName: name,
-            phone: dto.phone,
-            email,
-            organizationName: companyName?.trim() || undefined,
-            user: { create: newUserData },
-          },
-        });
-      }
-
-      return tx.enquiry.create({
-        data: {
-          companyId,
-          enquiryNumber,
-          customerId: linkedCustomerId,
-          name,
-          companyName: companyName?.trim() || undefined,
-          phone: dto.phone,
-          email,
-          serviceId,
-          priority: dto.priority ?? WorkOrderPriority.NORMAL,
-          serviceLocationId: dto.serviceLocationId,
-          message,
-          status: EnquiryStatus.NEW,
-        },
-      });
+    const enquiry = await this.prisma.enquiry.create({
+      data: {
+        companyId,
+        enquiryNumber,
+        customerId: existingCustomer?.id ?? customerId,
+        name,
+        companyName: companyName?.trim() || undefined,
+        phone: dto.phone,
+        email,
+        serviceId,
+        priority: dto.priority ?? WorkOrderPriority.NORMAL,
+        serviceLocationId: dto.serviceLocationId,
+        message,
+        status: EnquiryStatus.NEW,
+      },
     });
 
     await this.audit.log({
