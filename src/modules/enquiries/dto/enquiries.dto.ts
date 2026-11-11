@@ -21,9 +21,11 @@ export class CreateEnquiryDto {
   @Matches(/^\+?[0-9][0-9\s\-]{6,14}[0-9]$/, { message: 'phone must be a valid phone number' })
   phone!: string;
 
-  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
   @Matches(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, { message: 'email must be a valid email address' })
-  email?: string;
+  email!: string;
 
   @IsOptional()
   @IsString()
@@ -55,6 +57,20 @@ export class CreateEnquiryDto {
   @MaxLength(2000)
   @Transform(({ value, obj }) => value ?? obj.customerMessage)
   message?: string;
+
+  /** Explicit customer first name; falls back to the enquiry contact name. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  customerFirstName?: string;
+
+  /** Explicit customer last name; falls back to the remaining contact-name parts. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  customerLastName?: string;
 }
 
 export class AssignEnquiryDto {

@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Role, WorkOrderPriority } from '@prisma/client';
@@ -18,6 +18,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthUser } from '../../common/types/auth.types';
+import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
 import {
   AssignEnquiryDto,
   CreateEnquiryDto,
@@ -107,6 +108,7 @@ export class EnquiriesController {
   constructor(private readonly enquiries: EnquiriesService) {}
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Post()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Submit a public customer enquiry' })

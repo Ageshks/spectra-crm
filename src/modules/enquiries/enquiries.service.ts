@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import {
   BookingStatus,
   EnquiryStatus,
@@ -25,6 +27,7 @@ import {
 import { SequenceService } from '../../common/sequence/sequence.module';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthUser } from '../../common/types/auth.types';
+import { hashPassword } from '../../common/utils/password.util';
 import {
   AssignEnquiryDto,
   CreateEnquiryDto,
@@ -140,10 +143,26 @@ export class EnquiriesService {
       customerId ??= address.customerId;
     }
 
-    // An enquiry is also a directory customer record, but it does not create
-    // credentials or a login account. Reuse a matching company customer where possible.
+    const email = dto.email.trim().toLowerCase();
+    const nameParts = dto.name.trim().split(/\s+/);
+    const firstName = dto.customerFirstName || nameParts[0] || '';
+    const lastName = dto.customerLastName ?? nameParts.slice(1).join(' ');
+    const matchingUser = await this.prisma.user.findMany({
+      where: { OR: [{ email }, { phone: dto.phone }] },
+      select: { id: true },
+    });
+    let existingCustomer = customerId
+      ? await this.prisma.customer.findFirst({
+          where: { id: customerId, companyId },
+          select: { id: true, userId: true },
+        })
+      : null;
+    if (customerId && !existingCustomer) {
+      throw new BadRequestException('Customer does not exist in this company');
+    }
+
+    // Reuse a matching directory record and its existing login when possible.
     if (!customerId) {
-      const email = dto.email?.trim().toLowerCase();
       const matchingCustomer = await this.prisma.customer.findFirst({
         where: {
           companyId,
@@ -154,37 +173,83 @@ export class EnquiriesService {
             ...(email ? [{ user: { is: { email: { equals: email, mode: 'insensitive' as const } } } }] : []),
           ],
         },
-        select: { id: true },
+        select: { id: true, userId: true },
       });
-      const customer = matchingCustomer ?? await this.prisma.customer.create({
-        data: {
-          companyId,
-          contactName: dto.name,
-          phone: dto.phone,
-          email,
-          organizationName: dto.companyName?.trim() || undefined,
-        },
-        select: { id: true },
-      });
-      customerId = customer.id;
+      if (!matchingCustomer && matchingUser.length) {
+        throw new ConflictException('Email or phone number is already linked to another account');
+      }
+      existingCustomer = matchingCustomer;
+      customerId = matchingCustomer?.id;
     }
 
+    if (!existingCustomer) {
+      if (matchingUser.length) {
+        throw new ConflictException('Email or phone number is already linked to another account');
+      }
+    }
+    if (matchingUser.some((user) => user.id !== existingCustomer?.userId)) {
+      throw new ConflictException('Email or phone number is already linked to another account');
+    }
+    const newUserData = existingCustomer?.userId
+      ? undefined
+      : {
+          firstName,
+          lastName,
+          email,
+          phone: dto.phone,
+          passwordHash: await hashPassword(randomBytes(32).toString('base64url')),
+          role: Role.CUSTOMER,
+          companyId,
+          isVerified: false,
+        };
+
     const enquiryNumber = await this.sequences.next('ENQ');
-    const enquiry = await this.prisma.enquiry.create({
-      data: {
-        companyId,
-        enquiryNumber,
-        customerId,
-        name: dto.name,
-        companyName: dto.companyName?.trim() || undefined,
-        phone: dto.phone,
-        email: dto.email,
-        serviceId,
-        priority: dto.priority ?? WorkOrderPriority.NORMAL,
-        serviceLocationId: dto.serviceLocationId,
-        message: dto.message,
-        status: EnquiryStatus.NEW,
-      },
+    const enquiry = await this.prisma.$transaction(async (tx) => {
+      let linkedCustomerId = existingCustomer?.id;
+      if (!linkedCustomerId) {
+        if (!newUserData) throw new ConflictException('Unable to create the customer login account');
+        const customer = await tx.customer.create({
+          data: {
+            company: { connect: { id: companyId } },
+            contactName: dto.name,
+            phone: dto.phone,
+            email,
+            organizationName: dto.companyName?.trim() || undefined,
+            user: { create: newUserData },
+          },
+          select: { id: true },
+        });
+        linkedCustomerId = customer.id;
+      } else if (!existingCustomer?.userId) {
+        if (!newUserData) throw new ConflictException('Unable to create the customer login account');
+        await tx.customer.update({
+          where: { id: linkedCustomerId },
+          data: {
+            contactName: dto.name,
+            phone: dto.phone,
+            email,
+            organizationName: dto.companyName?.trim() || undefined,
+            user: { create: newUserData },
+          },
+        });
+      }
+
+      return tx.enquiry.create({
+        data: {
+          companyId,
+          enquiryNumber,
+          customerId: linkedCustomerId,
+          name: dto.name,
+          companyName: dto.companyName?.trim() || undefined,
+          phone: dto.phone,
+          email,
+          serviceId,
+          priority: dto.priority ?? WorkOrderPriority.NORMAL,
+          serviceLocationId: dto.serviceLocationId,
+          message: dto.message,
+          status: EnquiryStatus.NEW,
+        },
+      });
     });
 
     await this.audit.log({
@@ -192,7 +257,7 @@ export class EnquiriesService {
       module: 'enquiries',
       entity: 'Enquiry',
       entityId: enquiry.id,
-      userId: actor.id,
+      userId: actor.id || undefined,
       newValues: { enquiryNumber, phone: dto.phone },
     });
 
@@ -402,7 +467,9 @@ export class EnquiriesService {
     const manager = managerId
       ? await this.prisma.manager.findUnique({
           where: { id: managerId },
-          include: { user: { select: { id: true, isActive: true, role: true } } },
+          include: {
+            user: { select: { id: true, isActive: true, role: true } },
+          },
         })
       : null;
     if (managerId && (!manager || !manager.user.isActive || manager.user.role !== Role.MANAGER)) {
@@ -448,7 +515,9 @@ export class EnquiriesService {
           createdById: actorId,
         },
       });
-      let workOrder: Prisma.WorkOrderGetPayload<{ include: typeof convertedWorkOrderInclude }> | null = null;
+      let workOrder: Prisma.WorkOrderGetPayload<{
+        include: typeof convertedWorkOrderInclude;
+      }> | null = null;
 
       if (createWorkOrder && workOrderNumber) {
         const createdWorkOrder = await tx.workOrder.create({
@@ -536,7 +605,13 @@ export class EnquiriesService {
     if (result.workOrder) {
       const assigneeNotifications = [
         ...(manager?.user.id
-          ? [{ userId: manager.user.id, title: 'New work order', message: `Work order ${result.workOrder.workOrderNumber} has been created` }]
+          ? [
+              {
+                userId: manager.user.id,
+                title: 'New work order',
+                message: `Work order ${result.workOrder.workOrderNumber} has been created`,
+              },
+            ]
           : []),
         ...employees.map((employee) => ({
           userId: employee.user.id,
