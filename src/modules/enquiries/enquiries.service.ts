@@ -103,6 +103,11 @@ export class EnquiriesService {
     dto: CreateEnquiryDto,
     actor: { id: string; role: Role; customerId?: string; companyId?: string },
   ): Promise<unknown> {
+    const name = dto.name ?? dto.contactName;
+    if (!name) throw new BadRequestException('Contact name is required');
+    const companyName = dto.companyName ?? dto.company;
+    const requestedService = dto.serviceId ?? dto.requestedService;
+    const message = dto.message ?? dto.customerMessage;
     const company = actor.companyId
       ? await this.prisma.company.findFirst({ where: { id: actor.companyId, isActive: true }, select: { id: true } })
       : await this.prisma.company.findFirst({ where: { slug: dto.companySlug?.trim().toLowerCase() || 'default', isActive: true }, select: { id: true } });
@@ -118,12 +123,12 @@ export class EnquiriesService {
       if (customer.companyId !== companyId) throw new ForbiddenException('Customer is outside this company');
     }
     let serviceId: string | undefined;
-    if (dto.serviceId) {
-      const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(dto.serviceId);
+    if (requestedService) {
+      const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedService);
       const service = looksLikeUuid
-        ? await this.prisma.service.findUnique({ where: { id: dto.serviceId } })
+        ? await this.prisma.service.findUnique({ where: { id: requestedService } })
         : await this.prisma.service.findFirst({
-          where: { companyId, name: { equals: dto.serviceId.trim(), mode: 'insensitive' }, isActive: true },
+          where: { companyId, name: { equals: requestedService.trim(), mode: 'insensitive' }, isActive: true },
         });
       if (!service) throw new BadRequestException('Service does not exist');
       if (service.companyId !== companyId) throw new BadRequestException('Service is outside this company');
@@ -144,7 +149,7 @@ export class EnquiriesService {
     }
 
     const email = dto.email.trim().toLowerCase();
-    const nameParts = dto.name.trim().split(/\s+/);
+    const nameParts = name.trim().split(/\s+/);
     const firstName = dto.customerFirstName || nameParts[0] || '';
     const lastName = dto.customerLastName ?? nameParts.slice(1).join(' ');
     const matchingUser = await this.prisma.user.findMany({
@@ -211,10 +216,10 @@ export class EnquiriesService {
         const customer = await tx.customer.create({
           data: {
             company: { connect: { id: companyId } },
-            contactName: dto.name,
+            contactName: name,
             phone: dto.phone,
             email,
-            organizationName: dto.companyName?.trim() || undefined,
+            organizationName: companyName?.trim() || undefined,
             user: { create: newUserData },
           },
           select: { id: true },
@@ -225,10 +230,10 @@ export class EnquiriesService {
         await tx.customer.update({
           where: { id: linkedCustomerId },
           data: {
-            contactName: dto.name,
+            contactName: name,
             phone: dto.phone,
             email,
-            organizationName: dto.companyName?.trim() || undefined,
+            organizationName: companyName?.trim() || undefined,
             user: { create: newUserData },
           },
         });
@@ -239,14 +244,14 @@ export class EnquiriesService {
           companyId,
           enquiryNumber,
           customerId: linkedCustomerId,
-          name: dto.name,
-          companyName: dto.companyName?.trim() || undefined,
+          name,
+          companyName: companyName?.trim() || undefined,
           phone: dto.phone,
           email,
           serviceId,
           priority: dto.priority ?? WorkOrderPriority.NORMAL,
           serviceLocationId: dto.serviceLocationId,
-          message: dto.message,
+          message,
           status: EnquiryStatus.NEW,
         },
       });
@@ -270,7 +275,7 @@ export class EnquiriesService {
       recipients.map((recipient) => ({
         userId: recipient.id,
         title: 'New enquiry',
-        message: `Enquiry ${enquiryNumber} received from ${dto.name}`,
+        message: `Enquiry ${enquiryNumber} received from ${name}`,
         type: NotificationType.NEW_ENQUIRY,
         referenceType: 'enquiry',
         referenceId: enquiry.id,

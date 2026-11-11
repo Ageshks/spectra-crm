@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf } from 'class-validator';
 import { EnquiryStatus, WorkOrderPriority } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -12,11 +12,17 @@ export class CreateEnquiryDto {
   @IsUUID()
   customerId?: string;
 
+  @ValidateIf((dto) => !dto.contactName)
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
-  @Transform(({ value, obj }) => value ?? obj.contactName)
-  name!: string;
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(150)
+  contactName?: string;
 
   @Matches(/^\+?[0-9][0-9\s\-]{6,14}[0-9]$/, { message: 'phone must be a valid phone number' })
   phone!: string;
@@ -30,13 +36,20 @@ export class CreateEnquiryDto {
   @IsOptional()
   @IsString()
   @MaxLength(150)
-  @Transform(({ value, obj }) => value ?? obj.company)
   companyName?: string;
 
   @IsOptional()
   @IsString()
-  @Transform(({ value, obj }) => value ?? obj.requestedService)
+  @MaxLength(150)
+  company?: string;
+
+  @IsOptional()
+  @IsString()
   serviceId?: string;
+
+  @IsOptional()
+  @IsString()
+  requestedService?: string;
 
   @IsOptional()
   @Transform(({ value }) => {
@@ -55,8 +68,12 @@ export class CreateEnquiryDto {
   @IsOptional()
   @IsString()
   @MaxLength(2000)
-  @Transform(({ value, obj }) => value ?? obj.customerMessage)
   message?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  customerMessage?: string;
 
   /** Explicit customer first name; falls back to the enquiry contact name. */
   @IsOptional()
