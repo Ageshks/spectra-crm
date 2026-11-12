@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -89,6 +90,8 @@ const convertedWorkOrderInclude = {
 
 @Injectable()
 export class EnquiriesService {
+  private readonly logger = new Logger(EnquiriesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -202,20 +205,27 @@ export class EnquiriesService {
     });
 
     // Alert active admins and managers about every new enquiry.
-    const recipients = await this.prisma.user.findMany({
-      where: { role: { in: [Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN] }, isActive: true, companyId },
-      select: { id: true },
-    });
-    await this.notifications.notifyMany(
-      recipients.map((recipient) => ({
-        userId: recipient.id,
-        title: 'New enquiry',
-        message: `Enquiry ${enquiryNumber} received from ${name}`,
-        type: NotificationType.NEW_ENQUIRY,
-        referenceType: 'enquiry',
-        referenceId: enquiry.id,
-      })),
-    );
+    try {
+      const recipients = await this.prisma.user.findMany({
+        where: { role: { in: [Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN] }, isActive: true, companyId },
+        select: { id: true },
+      });
+      await this.notifications.notifyMany(
+        recipients.map((recipient) => ({
+          userId: recipient.id,
+          title: 'New enquiry',
+          message: `Enquiry ${enquiryNumber} received from ${name}`,
+          type: NotificationType.NEW_ENQUIRY,
+          referenceType: 'enquiry',
+          referenceId: enquiry.id,
+        })),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Enquiry ${enquiry.id} was saved, but admin notifications could not be sent`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
 
     return enquiry;
   }
