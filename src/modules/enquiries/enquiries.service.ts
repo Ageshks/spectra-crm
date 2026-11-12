@@ -276,6 +276,34 @@ export class EnquiriesService {
     return enquiry;
   }
 
+  async remove(id: string, actor: AuthUser): Promise<{ id: string; deleted: true }> {
+    if (actor.role !== Role.ADMIN && actor.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only admins can delete enquiries');
+    }
+
+    const enquiry = await this.prisma.enquiry.findFirst({
+      where: {
+        id,
+        ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }),
+      },
+    });
+    if (!enquiry) throw new NotFoundException('Enquiry not found');
+    if (enquiry.status === EnquiryStatus.CONVERTED || enquiry.convertedBookingId) {
+      throw new BadRequestException('Converted enquiries cannot be deleted');
+    }
+
+    await this.prisma.enquiry.delete({ where: { id } });
+    await this.audit.log({
+      action: 'DELETE_ENQUIRY',
+      module: 'enquiries',
+      entity: 'Enquiry',
+      entityId: id,
+      userId: actor.id,
+      oldValues: { enquiryNumber: enquiry.enquiryNumber, status: enquiry.status },
+    });
+    return { id, deleted: true };
+  }
+
   async assign(id: string, dto: AssignEnquiryDto, actor: AuthUser): Promise<unknown> {
     const enquiry = await this.prisma.enquiry.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!enquiry) throw new NotFoundException('Enquiry not found');

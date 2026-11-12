@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Role, WorkOrderPriority } from '@prisma/client';
@@ -137,6 +137,15 @@ export class EnquiriesController {
   @ResponseMessage('Enquiry retrieved')
   get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.enquiries.getById(id, user);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOperation({ summary: 'Delete an enquiry (admins only)' })
+  @ResponseMessage('Enquiry deleted')
+  remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.enquiries.remove(id, user);
   }
 
   @Post(':id/assign')

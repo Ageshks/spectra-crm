@@ -16,6 +16,8 @@ function setup(notificationFailure?: Error) {
     },
     enquiry: {
       create: jest.fn().mockResolvedValue(savedEnquiry),
+      findFirst: jest.fn(),
+      delete: jest.fn().mockResolvedValue(savedEnquiry),
     },
     user: {
       findMany: jest.fn().mockResolvedValue([{ id: 'admin-1' }]),
@@ -80,5 +82,68 @@ describe('EnquiriesService.create', () => {
     await expect(service.create(payload, publicActor)).resolves.toBe(savedEnquiry);
 
     expect(prisma.enquiry.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('EnquiriesService.remove', () => {
+  it('deletes an enquiry in the admin company and audits the removal', async () => {
+    const { service, prisma } = setup();
+    const enquiry = {
+      id: 'enquiry-1',
+      enquiryNumber: 'ENQ-2026-000001',
+      status: 'NEW',
+      convertedBookingId: null,
+      companyId: 'company-1',
+    };
+    prisma.enquiry.findFirst.mockResolvedValue(enquiry);
+
+    await expect(service.remove('enquiry-1', {
+      id: 'admin-1',
+      role: Role.ADMIN,
+      email: 'admin@example.com',
+      isActive: true,
+      companyId: 'company-1',
+    })).resolves.toEqual({ id: 'enquiry-1', deleted: true });
+
+    expect(prisma.enquiry.findFirst).toHaveBeenCalledWith({
+      where: { id: 'enquiry-1', companyId: 'company-1' },
+    });
+    expect(prisma.enquiry.delete).toHaveBeenCalledWith({ where: { id: 'enquiry-1' } });
+  });
+
+  it('rejects manager deletion before accessing the enquiry', async () => {
+    const { service, prisma } = setup();
+
+    await expect(service.remove('enquiry-1', {
+      id: 'manager-1',
+      role: Role.MANAGER,
+      email: 'manager@example.com',
+      isActive: true,
+      companyId: 'company-1',
+    })).rejects.toThrow('Only admins can delete enquiries');
+
+    expect(prisma.enquiry.findFirst).not.toHaveBeenCalled();
+    expect(prisma.enquiry.delete).not.toHaveBeenCalled();
+  });
+
+  it('does not delete an enquiry converted to a booking', async () => {
+    const { service, prisma } = setup();
+    prisma.enquiry.findFirst.mockResolvedValue({
+      id: 'enquiry-1',
+      enquiryNumber: 'ENQ-2026-000001',
+      status: 'CONVERTED',
+      convertedBookingId: 'booking-1',
+      companyId: 'company-1',
+    });
+
+    await expect(service.remove('enquiry-1', {
+      id: 'admin-1',
+      role: Role.ADMIN,
+      email: 'admin@example.com',
+      isActive: true,
+      companyId: 'company-1',
+    })).rejects.toThrow('Converted enquiries cannot be deleted');
+
+    expect(prisma.enquiry.delete).not.toHaveBeenCalled();
   });
 });
