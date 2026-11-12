@@ -25,7 +25,7 @@ export class SequenceService {
 
     const value = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ value: string }>>`
-        SELECT value FROM "Setting" WHERE "companyId" = ${DEFAULT_COMPANY_ID} AND key = ${key} FOR UPDATE
+        SELECT value FROM "Setting" WHERE "companyId" = ${DEFAULT_COMPANY_ID}::uuid AND key = ${key} FOR UPDATE
       `;
       const current = Number(rows[0]?.value ?? '0') || 0;
       const nextValue = current + 1;
