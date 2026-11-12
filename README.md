@@ -12,7 +12,7 @@ The current codebase includes authentication and refresh token storage, role gua
 - Admins create employee/field staff through `POST /api/v1/employees` and manager/supervisor accounts through `POST /api/v1/managers`.
 - Both mobile apps authenticate through `POST /api/v1/auth/login`; the returned role scopes API access. The field staff/supervisor app uses employee and manager roles, while the customer app uses the customer role.
 - Employees and managers can use `POST /api/v1/attendance/check-in`, `POST /api/v1/attendance/check-out`, and `GET /api/v1/attendance/today`. Attendance is stored against the authenticated staff profile.
-- Employees submit overtime through `POST /api/v1/overtime` after completing more than 8 hours from check-in, with an optional 60-minute break deduction. Managers approve/reject it through `POST /api/v1/overtime/{id}/decision`.
+- Employees submit overtime through `POST /api/v1/overtime` after completing more than 8 hours 30 minutes from check-in, with an optional 60-minute break counted separately. Managers approve/reject it through `POST /api/v1/overtime/{id}/decision`.
 - Admins record payment for approved overtime through `PATCH /api/v1/overtime/{id}/payment`, with `{ "amount": 1250.00, "paymentReference": "optional-reference" }`. Staff can see the payment amount, status, and date in their own `GET /api/v1/overtime` results. Amounts are recorded in INR; this endpoint records payment, it does not transfer money.
 - Employees submit expense claims through `POST /api/v1/expenses`; managers and admins review them through `POST /api/v1/expenses/{id}/decision`.
 
@@ -269,7 +269,7 @@ Operational flow: converting an enquiry creates a booking only. After confirming
 Attendance records include `employeeId` as the employee profile UUID, `employeeNo` as the generated roster number (for example `EMP-2026-000001`), `employeeName`, and the nested `employee` profile details.
 
 ### Overtime — `/api/v1/overtime` (INR, records payment only)
-- `POST /api/v1/overtime` — EMPLOYEE, ADMIN, SUPER_ADMIN, request after 8 hours from check-in; optional `breakMinutes: 60` adds a 1-hour break before overtime starts (defaults to `0`)
+- `POST /api/v1/overtime` — EMPLOYEE, ADMIN, SUPER_ADMIN, request after 8 hours 30 minutes of working time from check-in; optional `breakMinutes: 60` is added separately before overtime starts (defaults to `0`)
 - `GET /api/v1/overtime` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, list (employees own only)
 - `GET /api/v1/overtime/:id` — EMPLOYEE, MANAGER, ADMIN, SUPER_ADMIN, get one
 - `POST /api/v1/overtime/:id/decision` — MANAGER, ADMIN, SUPER_ADMIN, approve/reject

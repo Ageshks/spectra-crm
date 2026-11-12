@@ -22,7 +22,7 @@ export class CreateOvertimeDto {
   @MaxLength(1000)
   reason?: string;
 
-  /** Required when attendance was automatically closed at the 8-hour mark. */
+  /** Required when attendance was automatically closed at the 8-hour-30-minute mark. */
   @IsOptional()
   @Type(() => Number)
   @IsInt()

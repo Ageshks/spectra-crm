@@ -36,6 +36,8 @@ const overtimeInclude = {
   approvedBy: { select: { id: true, firstName: true, lastName: true } },
 } satisfies Prisma.OvertimeInclude;
 
+const STANDARD_SHIFT_MINUTES = 8 * 60 + 30;
+
 @Injectable()
 export class OvertimeService {
   constructor(
@@ -72,7 +74,7 @@ export class OvertimeService {
       where: { employeeId, status: WorkAssignmentStatus.IN_PROGRESS },
       select: { id: true },
     });
-    const autoCheckedOut = !!record.checkOutTime && record.workingMinutes === 480 && !!ongoingWork;
+    const autoCheckedOut = !!record.checkOutTime && record.workingMinutes === STANDARD_SHIFT_MINUTES && !!ongoingWork;
     if (!record.checkOutTime && !ongoingWork) {
       throw new BadRequestException('You can request overtime during an active shift only while you have work in progress');
     }
@@ -80,18 +82,18 @@ export class OvertimeService {
     const elapsedMinutes = Math.floor(
       (endTime.getTime() - record.checkInTime.getTime()) / 60_000,
     );
-    const requiredMinutes = 8 * 60 + dto.breakMinutes;
+    const requiredMinutes = STANDARD_SHIFT_MINUTES + dto.breakMinutes;
     if (autoCheckedOut) {
       if (!dto.requestedMinutes) {
         throw new BadRequestException('requestedMinutes is required when attendance was automatically checked out');
       }
     } else if (elapsedMinutes <= requiredMinutes) {
       throw new BadRequestException(
-        `Overtime requires more than 8 working hours${dto.breakMinutes ? ' plus the 60-minute break' : ''} after check-in`,
+        `Overtime requires more than 8 hours 30 minutes of working time${dto.breakMinutes ? ' plus the 60-minute break' : ''} after check-in`,
       );
     }
     const durationMinutes = autoCheckedOut ? dto.requestedMinutes! : elapsedMinutes - requiredMinutes;
-    const overtimeStart = new Date(record.checkInTime.getTime() + (autoCheckedOut ? 8 * 60 : requiredMinutes) * 60_000);
+    const overtimeStart = new Date(record.checkInTime.getTime() + (autoCheckedOut ? STANDARD_SHIFT_MINUTES : requiredMinutes) * 60_000);
     const overtimeEnd = autoCheckedOut ? new Date(overtimeStart.getTime() + durationMinutes * 60_000) : endTime;
     const formatTime = (value: Date): string => timeOfDayInTz(value);
 
@@ -132,7 +134,7 @@ export class OvertimeService {
       this.prisma.workAssignment.findFirst({ where: { employeeId, status: WorkAssignmentStatus.IN_PROGRESS }, select: { id: true } }),
     ]);
     const now = new Date();
-    const eligibleAt = attendance?.checkInTime ? new Date(attendance.checkInTime.getTime() + 8 * 60 * 60_000) : null;
+    const eligibleAt = attendance?.checkInTime ? new Date(attendance.checkInTime.getTime() + STANDARD_SHIFT_MINUTES * 60_000) : null;
     const existing = attendance ? await this.prisma.overtime.findFirst({
       where: { attendanceId: attendance.id, status: { not: OvertimeStatus.REJECTED } },
       include: overtimeInclude,
@@ -146,16 +148,16 @@ export class OvertimeService {
       eligibleAt,
       hasOngoingWork: !!ongoingWork,
       canApply: !!attendance?.checkInTime && !existing && now >= (eligibleAt ?? now) &&
-        (!!ongoingWork && (!attendance.checkOutTime || attendance.workingMinutes === 480) ||
-          !!attendance.checkOutTime && attendance.workingMinutes !== 480),
+        (!!ongoingWork && (!attendance.checkOutTime || attendance.workingMinutes === STANDARD_SHIFT_MINUTES) ||
+          !!attendance.checkOutTime && attendance.workingMinutes !== STANDARD_SHIFT_MINUTES),
       existingRequest: existing,
     };
   }
 
-  /** Automatically check out employees at eight hours and send a push notification once. */
-  @Cron('* * * * *', { name: 'attendance-eight-hour-auto-checkout', timeZone: 'Asia/Kolkata' })
-  async autoCheckoutAfterEightHours(): Promise<void> {
-    const threshold = new Date(Date.now() - 8 * 60 * 60_000);
+  /** Automatically check out employees after their standard shift and notify them once. */
+  @Cron('* * * * *', { name: 'attendance-eight-and-a-half-hour-auto-checkout', timeZone: 'Asia/Kolkata' })
+  async autoCheckoutAfterStandardShift(): Promise<void> {
+    const threshold = new Date(Date.now() - STANDARD_SHIFT_MINUTES * 60_000);
     const attendances = await this.prisma.attendance.findMany({
       where: {
         employeeId: { not: null },
@@ -167,10 +169,10 @@ export class OvertimeService {
     });
     for (const attendance of attendances) {
       if (!attendance.employeeId || !attendance.employee) continue;
-      const checkOutTime = new Date(attendance.checkInTime!.getTime() + 8 * 60 * 60_000);
+      const checkOutTime = new Date(attendance.checkInTime!.getTime() + STANDARD_SHIFT_MINUTES * 60_000);
       const updated = await this.prisma.attendance.updateMany({
         where: { id: attendance.id, checkOutTime: null },
-        data: { checkOutTime, workingMinutes: 480 },
+        data: { checkOutTime, workingMinutes: STANDARD_SHIFT_MINUTES },
       });
       if (updated.count === 0) continue;
       const hasOngoingWork = attendance.employee.assignments.length > 0;
@@ -178,8 +180,8 @@ export class OvertimeService {
         userId: attendance.employee.userId,
         title: 'Attendance automatically checked out',
         message: hasOngoingWork
-          ? 'Your attendance was checked out after 8 hours. Work is still in progress; request overtime approval from your work profile.'
-          : 'Your attendance was checked out automatically after 8 hours.',
+          ? 'Your attendance was checked out after 8 hours 30 minutes. Work is still in progress; request overtime approval from your work profile.'
+          : 'Your attendance was checked out automatically after 8 hours 30 minutes.',
         type: NotificationType.ATTENDANCE_AUTO_CHECKOUT,
         referenceType: hasOngoingWork ? 'overtime_reminder' : 'attendance',
         referenceId: attendance.id,
