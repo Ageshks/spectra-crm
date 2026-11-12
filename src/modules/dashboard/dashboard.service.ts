@@ -29,6 +29,7 @@ export class DashboardService {
     const [
       totalCustomers,
       employeeCount,
+      totalEnquiries,
       newEnquiries,
       pendingBookings,
       totalBookings,
@@ -43,6 +44,7 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.customer.count({ where: companyId ? { companyId } : {} }),
       this.prisma.employee.count({ where: companyId ? { companyId } : {} }),
+      this.prisma.enquiry.count({ where: companyId ? { companyId } : {} }),
       this.prisma.enquiry.count({ where: { ...(companyId ? { companyId } : {}), status: 'NEW' } }),
       this.prisma.booking.count({ where: { ...(companyId ? { companyId } : {}), status: 'REQUESTED' } }),
       this.prisma.booking.count({ where: companyId ? { companyId } : {} }),
@@ -65,6 +67,7 @@ export class DashboardService {
     return {
       totalCustomers,
       employeeCount,
+      totalEnquiries,
       newEnquiries,
       pendingBookings,
       totalBookings,
