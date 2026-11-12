@@ -1,11 +1,19 @@
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
+  Max,
   MaxLength,
+  Min,
+  ValidateNested,
 } from 'class-validator';
 import { BookingStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
@@ -34,6 +42,24 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => BookingProductInputDto)
+  products?: BookingProductInputDto[];
+}
+
+export class BookingProductInputDto {
+  @IsUUID()
+  productId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  quantity!: number;
 }
 
 export class UpdateBookingStatusDto {

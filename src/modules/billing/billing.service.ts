@@ -20,7 +20,7 @@ const includeInvoice = {
   adjustments: { where: { status: InvoiceAdjustmentStatus.FINALIZED }, orderBy: { finalizedAt: 'asc' as const } },
 } satisfies Prisma.ServiceInvoiceInclude;
 
-type WorkBillingContext = Prisma.WorkOrderGetPayload<{ include: { booking: true; customer: { include: { addresses: true } }; service: true; assignments: true; company: true } }>;
+type WorkBillingContext = Prisma.WorkOrderGetPayload<{ include: { booking: { include: { bookingProducts: true } }; customer: { include: { addresses: true } }; service: true; assignments: true; company: true } }>;
 
 @Injectable()
 export class BillingService {
@@ -57,7 +57,7 @@ export class BillingService {
   private async workContext(workOrderId: string, actor: AuthUser): Promise<WorkBillingContext> {
     const work = await this.prisma.workOrder.findFirst({
       where: { id: workOrderId, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) },
-      include: { booking: true, customer: { include: { addresses: true } }, service: true, assignments: true, company: true },
+      include: { booking: { include: { bookingProducts: true } }, customer: { include: { addresses: true } }, service: true, assignments: true, company: true },
     });
     if (!work) throw new NotFoundException('Work order not found');
     if ((work.status !== WorkOrderStatus.COMPLETED && work.status !== WorkOrderStatus.APPROVED) || !work.completedAt) {
@@ -90,7 +90,15 @@ export class BillingService {
 
   private async calculatedData(work: WorkBillingContext, items: InvoiceItemInputDto[], discount: number) {
     const base = new Prisma.Decimal(work.booking.baseServicePrice.toString()).toDecimalPlaces(2);
-    const itemAmounts = items.map((item) => this.money(item.quantity * item.unitPrice));
+    const itemAmounts = items.map((item) => {
+      const amount = new Prisma.Decimal(item.quantity.toString())
+        .mul(new Prisma.Decimal(item.unitPrice.toString()))
+        .toDecimalPlaces(2);
+      if (amount.lessThan(0) || amount.greaterThan('9999999999.99')) {
+        throw new BadRequestException('Invoice line amount exceeds the supported range');
+      }
+      return amount;
+    });
     const charges = itemAmounts.reduce((sum, amount, index) => sum.plus(items[index].category === InvoiceItemCategory.DISCOUNT ? 0 : amount), new Prisma.Decimal(0));
     const lineDiscounts = itemAmounts.reduce((sum, amount, index) => sum.plus(items[index].category === InvoiceItemCategory.DISCOUNT ? amount : new Prisma.Decimal(0)), new Prisma.Decimal(0));
     const gross = base.plus(charges).toDecimalPlaces(2);
@@ -135,20 +143,41 @@ export class BillingService {
     }));
   }
 
+  private bookingProductItems(work: WorkBillingContext): InvoiceItemInputDto[] {
+    return work.booking.bookingProducts.map((product) => ({
+      category: InvoiceItemCategory.MATERIAL,
+      description: product.productName,
+      quantity: product.quantity,
+      unitPrice: Number(product.unitPrice.toString()),
+    }));
+  }
+
+  private bookingProductItemData(work: WorkBillingContext, actorId: string) {
+    return work.booking.bookingProducts.map((product) => ({
+      bookingProductId: product.id,
+      category: InvoiceItemCategory.MATERIAL,
+      description: product.productName,
+      quantity: new Prisma.Decimal(product.quantity),
+      unitPrice: new Prisma.Decimal(product.unitPrice.toString()),
+      amount: new Prisma.Decimal(product.lineTotal.toString()),
+      createdById: actorId,
+    }));
+  }
+
   async create(dto: CreateInvoiceDto, actor: AuthUser) {
     const work = await this.workContext(dto.workOrderId, actor);
     await this.canAddCharges(actor, work.companyId);
     const existing = await this.prisma.serviceInvoice.findUnique({ where: { workOrderId: work.id } });
     if (existing) throw new BadRequestException('Billing already exists for this work order');
     const items = dto.items ?? [];
-    const totals = await this.calculatedData(work, items, dto.discountAmount ?? 0);
+    const totals = await this.calculatedData(work, [...items, ...this.bookingProductItems(work)], dto.discountAmount ?? 0);
     const invoice = await this.prisma.$transaction(async (tx) => {
       const created = await tx.serviceInvoice.create({
         data: {
           companyId: work.companyId, bookingId: work.bookingId, workOrderId: work.id,
           customerId: work.customerId, serviceId: work.serviceId, ...totals,
           status: ServiceInvoiceStatus.DRAFT, createdById: actor.id,
-          items: { create: this.itemData(items, actor.id) },
+          items: { create: [...this.itemData(items, actor.id), ...this.bookingProductItemData(work, actor.id)] },
           history: { create: { action: 'CREATED', newStatus: ServiceInvoiceStatus.DRAFT, performedById: actor.id } },
         }, include: includeInvoice,
       });
@@ -163,13 +192,15 @@ export class BillingService {
     await this.canAddCharges(actor, invoice.companyId);
     if (invoice.status !== ServiceInvoiceStatus.DRAFT && invoice.status !== ServiceInvoiceStatus.REJECTED) throw new BadRequestException('Only draft or rejected billing can be edited');
     const work = await this.workContext(invoice.workOrderId, actor);
-    const items = dto.items ?? invoice.items.map((i) => ({ category: i.category, description: i.description, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) }));
-    const totals = await this.calculatedData(work, items, dto.discountAmount ?? Number(invoice.discountAmount));
+    const items = dto.items ?? invoice.items
+      .filter((item) => !item.bookingProductId)
+      .map((i) => ({ category: i.category, description: i.description, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) }));
+    const totals = await this.calculatedData(work, [...items, ...this.bookingProductItems(work)], dto.discountAmount ?? Number(invoice.discountAmount));
     return this.prisma.$transaction(async (tx) => {
       const changed = await tx.serviceInvoice.updateMany({ where: { id, status: invoice.status, updatedAt: invoice.updatedAt }, data: totals });
       if (!changed.count) throw new BadRequestException('Billing changed while you were editing; reload and try again');
       if (dto.items) {
-        await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
+        await tx.invoiceItem.deleteMany({ where: { invoiceId: id, bookingProductId: null } });
         await tx.invoiceItem.createMany({ data: this.itemData(items, actor.id).map((item) => ({ ...item, invoiceId: id })) });
       }
       await tx.invoiceApprovalHistory.create({ data: { invoiceId: id, action: 'DRAFT_UPDATED', previousStatus: invoice.status, newStatus: invoice.status, performedById: actor.id, changes: { discountBefore: invoice.discountAmount.toString(), discountAfter: totals.discountAmount.toString(), itemsBefore: invoice.items.map((i) => ({ category: i.category, description: i.description, quantity: i.quantity.toString(), unitPrice: i.unitPrice.toString(), amount: i.amount.toString() })), itemsAfter: dto.items ? items.map((i) => ({ ...i })) : undefined } } });

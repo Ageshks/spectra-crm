@@ -448,6 +448,7 @@ export class EnquiriesService {
           serviceId,
           serviceLocationId,
           baseServicePrice: service.basePrice,
+          totalAmount: service.basePrice,
           preferredDate,
           preferredTime: dto.preferredTime,
           remarks: dto.remarks ?? enquiry.message ?? undefined,

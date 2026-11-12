@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { InvoiceItemCategory, Role, ServiceInvoiceStatus, WorkOrderStatus } from '@prisma/client';
+import { InvoiceItemCategory, Prisma, Role, ServiceInvoiceStatus, WorkOrderStatus } from '@prisma/client';
 import { describe, expect, it, jest } from '@jest/globals';
 import { BillingService } from './billing.service';
 
@@ -9,7 +9,7 @@ const actor = { id: 'admin-1', email: 'admin@test.local', role: Role.ADMIN, isAc
 const work = (overrides: Record<string, unknown> = {}) => ({
   id: 'work-1', companyId, bookingId: 'booking-1', customerId: 'customer-1', serviceId: 'service-1',
   status: WorkOrderStatus.COMPLETED, completedAt: new Date(), managerId: 'manager-1',
-  booking: { id: 'booking-1', bookingNumber: 'BK-1', baseServicePrice: 100 },
+  booking: { id: 'booking-1', bookingNumber: 'BK-1', baseServicePrice: 100, bookingProducts: [] },
   customer: { id: 'customer-1', addresses: [{ id: 'location-1', gstStateCode: '29' }] },
   serviceLocationId: 'location-1',
   service: { id: 'service-1', name: 'Repair', basePrice: 100, gstRate: 18, gstInclusive: false },
@@ -19,7 +19,7 @@ const work = (overrides: Record<string, unknown> = {}) => ({
 function setup() {
   const tx = {
     serviceInvoice: { create: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }), findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'invoice-1', customer: { user: { id: 'customer-user' } } }) },
-    invoiceItem: { deleteMany: jest.fn() },
+    invoiceItem: { deleteMany: jest.fn(), createMany: jest.fn() },
     invoiceApprovalHistory: { create: jest.fn() },
   };
   const prisma = {
@@ -70,6 +70,88 @@ describe('BillingService', () => {
     expect(data.igstAmount.toString()).toBe('18');
     expect(data.cgstAmount.toString()).toBe('0');
     expect(data.sgstAmount.toString()).toBe('0');
+  });
+
+  it('adds booked product snapshots to invoice totals and preserves their source booking lines', async () => {
+    const { service, prisma, tx } = setup();
+    prisma.workOrder.findFirst.mockResolvedValue(work({
+      booking: {
+        id: 'booking-1',
+        bookingNumber: 'BK-1',
+        baseServicePrice: new Prisma.Decimal('100.00'),
+        bookingProducts: [{
+          id: 'booking-product-1',
+          productName: 'Water filter',
+          quantity: 2,
+          unitPrice: new Prisma.Decimal('25.50'),
+          lineTotal: new Prisma.Decimal('51.00'),
+        }],
+      },
+    }));
+    tx.serviceInvoice.create.mockResolvedValue({ id: 'invoice-1' });
+
+    await service.create({ workOrderId: 'work-1' }, actor);
+
+    const data = tx.serviceInvoice.create.mock.calls[0][0].data;
+    expect(data.subtotal.toString()).toBe('151');
+    expect(data.finalAmount.toString()).toBe('178.18');
+    const bookedProductLine = data.items.create[0];
+    expect(bookedProductLine.bookingProductId).toBe('booking-product-1');
+    expect(bookedProductLine.category).toBe(InvoiceItemCategory.MATERIAL);
+    expect(bookedProductLine.description).toBe('Water filter');
+    expect(bookedProductLine.quantity.toString()).toBe('2');
+    expect(bookedProductLine.unitPrice.toString()).toBe('25.5');
+    expect(bookedProductLine.amount.toString()).toBe('51');
+  });
+
+  it('keeps booked product invoice lines when a draft is edited', async () => {
+    const { service, prisma, tx } = setup();
+    const productInvoiceItem = {
+      id: 'invoice-item-1',
+      bookingProductId: 'booking-product-1',
+      category: InvoiceItemCategory.MATERIAL,
+      description: 'Water filter',
+      quantity: new Prisma.Decimal(2),
+      unitPrice: new Prisma.Decimal('25.50'),
+      amount: new Prisma.Decimal('51.00'),
+    };
+    prisma.workOrder.findFirst.mockResolvedValue(work({
+      booking: {
+        id: 'booking-1',
+        bookingNumber: 'BK-1',
+        baseServicePrice: new Prisma.Decimal('100.00'),
+        bookingProducts: [{
+          id: 'booking-product-1',
+          productName: 'Water filter',
+          quantity: 2,
+          unitPrice: new Prisma.Decimal('25.50'),
+          lineTotal: new Prisma.Decimal('51.00'),
+        }],
+      },
+    }));
+    prisma.serviceInvoice.findFirst.mockResolvedValue({
+      id: 'invoice-1',
+      companyId,
+      workOrderId: 'work-1',
+      status: ServiceInvoiceStatus.DRAFT,
+      updatedAt: new Date(),
+      discountAmount: new Prisma.Decimal(0),
+      items: [productInvoiceItem],
+      workOrder: { managerId: 'manager-1' },
+    });
+
+    await service.update('invoice-1', {
+      items: [{ category: InvoiceItemCategory.MATERIAL, description: 'Extra part', quantity: 1, unitPrice: 10 }],
+    }, actor);
+
+    expect(tx.invoiceItem.deleteMany).toHaveBeenCalledWith({
+      where: { invoiceId: 'invoice-1', bookingProductId: null },
+    });
+    expect(tx.invoiceItem.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ description: 'Extra part', invoiceId: 'invoice-1' })],
+    });
+    const totals = tx.serviceInvoice.updateMany.mock.calls[0][0].data;
+    expect(totals.subtotal.toString()).toBe('161');
   });
 
   it('allows a technician assigned to the completed work to create a draft using the booking price snapshot', async () => {

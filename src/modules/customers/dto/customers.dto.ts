@@ -178,6 +178,14 @@ export class UpdateCustomerDto {
   notes?: string;
 }
 
+export class UpdateCustomerAdminDto extends UpdateCustomerDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(PASSWORD_MIN_LENGTH)
+  @MaxLength(72)
+  password?: string;
+}
+
 export class CreateCustomerDto {
   @IsOptional()
   @IsUUID()

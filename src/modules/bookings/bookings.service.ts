@@ -47,6 +47,18 @@ const bookingInclude = {
       user: { select: { id: true, firstName: true, lastName: true, phone: true, email: true } },
     },
   },
+  bookingProducts: {
+    select: {
+      id: true,
+      productId: true,
+      productName: true,
+      description: true,
+      quantity: true,
+      unitPrice: true,
+      lineTotal: true,
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
   workOrder: {
     select: {
       id: true,
@@ -115,6 +127,46 @@ export class BookingsService {
     if (service.companyId !== customer.companyId) throw new BadRequestException('Service belongs to another company');
     if (!service.isActive) throw new BadRequestException('Service is not available');
 
+    const requestedProducts = dto.products ?? [];
+    const productIds = requestedProducts.map(({ productId }) => productId);
+    if (new Set(productIds).size !== productIds.length) {
+      throw new BadRequestException('A product can only be selected once');
+    }
+
+    const products = productIds.length
+      ? await this.prisma.product.findMany({
+          where: {
+            id: { in: productIds },
+            companyId: customer.companyId,
+            isActive: true,
+          },
+          select: { id: true, name: true, description: true, price: true },
+        })
+      : [];
+    if (products.length !== productIds.length) {
+      throw new BadRequestException('One or more selected products are unavailable');
+    }
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const productLines = requestedProducts.map(({ productId, quantity }) => {
+      const product = productById.get(productId)!;
+      const unitPrice = new Prisma.Decimal(product.price.toString()).toDecimalPlaces(2);
+      return {
+        productId: product.id,
+        productName: product.name,
+        description: product.description,
+        quantity,
+        unitPrice,
+        lineTotal: unitPrice.mul(quantity).toDecimalPlaces(2),
+      };
+    });
+    const totalAmount = productLines.reduce(
+      (total, product) => total.plus(product.lineTotal),
+      new Prisma.Decimal(service.basePrice.toString()).toDecimalPlaces(2),
+    ).toDecimalPlaces(2);
+    if (totalAmount.greaterThan('9999999999.99')) {
+      throw new BadRequestException('Booking total exceeds the supported amount range');
+    }
+
     const address = await this.prisma.customerAddress.findFirst({
       where: { id: dto.serviceLocationId, customerId },
     });
@@ -159,6 +211,8 @@ export class BookingsService {
         serviceId: dto.serviceId,
         serviceLocationId: dto.serviceLocationId,
         baseServicePrice: service.basePrice,
+        totalAmount,
+        bookingProducts: productLines.length ? { create: productLines } : undefined,
         preferredDate,
         preferredTime: dto.preferredTime,
         remarks: dto.remarks,

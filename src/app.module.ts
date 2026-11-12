@@ -37,6 +37,7 @@ import { OvertimeModule } from './modules/overtime/overtime.module';
 import { ServiceCategoriesModule } from './modules/service-categories/service-categories.module';
 import { ServiceReportsModule } from './modules/service-reports/service-reports.module';
 import { ServicesModule } from './modules/services/services.module';
+import { ProductsModule } from './modules/products/products.module';
 import { UsersModule } from './modules/users/users.module';
 import { WorkAssignmentsModule } from './modules/work-assignments/work-assignments.module';
 import { WorkOrdersModule } from './modules/work-orders/work-orders.module';
@@ -76,6 +77,7 @@ import { QueuesModule } from './queues/queues.module';
     ManagersModule,
     ServiceCategoriesModule,
     ServicesModule,
+    ProductsModule,
     EnquiriesModule,
     ExpensesModule,
     ExportsModule,

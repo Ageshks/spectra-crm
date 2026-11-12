@@ -22,6 +22,7 @@ import {
   CreateCustomerDto,
   ListCustomersDto,
   UpdateAddressDto,
+  UpdateCustomerAdminDto,
   UpdateCustomerDto,
 } from './dto/customers.dto';
 import { CustomersService } from './customers.service';
@@ -70,7 +71,7 @@ export class CustomersController {
   update(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateCustomerDto,
+    @Body() dto: UpdateCustomerAdminDto,
   ) {
     return this.customers.updateAdmin(id, dto, user);
   }

@@ -238,6 +238,7 @@ model Company {
   serviceCategories ServiceCategory[]
   services          Service[]
   serviceInvoices   ServiceInvoice[]
+  products          Product[]
 
   @@index([isActive])
 }
@@ -494,6 +495,39 @@ model Service {
   @@index([companyId])
 }
 
+model Product {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  name        String   @db.VarChar(200)
+  description String?
+  price       Decimal  @db.Decimal(12, 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  photos       ProductPhoto[]
+  bookingItems BookingProduct[]
+
+  @@index([companyId])
+  @@index([isActive])
+  @@index([name])
+}
+
+model ProductPhoto {
+  id           String   @id @default(uuid()) @db.Uuid
+  productId    String   @db.Uuid
+  imageUrl     String
+  thumbnailUrl String?
+  publicId     String
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, position])
+}
+
 model Enquiry {
   id                 String            @id @default(uuid()) @db.Uuid
   companyId          String            @db.Uuid
@@ -536,6 +570,7 @@ model Booking {
   serviceId         String        @db.Uuid
   serviceLocationId String        @db.Uuid
   baseServicePrice  Decimal       @db.Decimal(12, 2)
+  totalAmount       Decimal       @db.Decimal(12, 2)
   preferredDate     DateTime      @db.Date
   preferredTime     String        @db.VarChar(8)
   remarks           String?
@@ -547,12 +582,13 @@ model Booking {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  company              Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  customer             Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  service              Service         @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  serviceLocation      CustomerAddress @relation(fields: [serviceLocationId], references: [id], onDelete: Restrict)
+  company              Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer             Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  service              Service          @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  serviceLocation      CustomerAddress  @relation(fields: [serviceLocationId], references: [id], onDelete: Restrict)
   workOrder            WorkOrder?
   serviceInvoice       ServiceInvoice?
+  bookingProducts      BookingProduct[]
   convertedFromEnquiry Enquiry?
 
   @@index([customerId])
@@ -561,6 +597,25 @@ model Booking {
   @@index([preferredDate])
   @@index([createdAt])
   @@index([companyId])
+}
+
+model BookingProduct {
+  id          String   @id @default(uuid()) @db.Uuid
+  bookingId   String   @db.Uuid
+  productId   String?  @db.Uuid
+  productName String   @db.VarChar(200)
+  description String?
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  lineTotal   Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+
+  booking     Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  invoiceItem InvoiceItem?
+
+  @@index([bookingId])
+  @@index([productId])
 }
 
 // ---------------------------------------------------------------
@@ -657,20 +712,22 @@ model ServiceInvoice {
 }
 
 model InvoiceItem {
-  id          String              @id @default(uuid()) @db.Uuid
-  invoiceId   String              @db.Uuid
-  category    InvoiceItemCategory
-  description String              @db.VarChar(500)
-  quantity    Decimal             @db.Decimal(10, 3)
-  unitPrice   Decimal             @db.Decimal(12, 2)
-  amount      Decimal             @db.Decimal(12, 2)
-  createdById String              @db.Uuid
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id               String              @id @default(uuid()) @db.Uuid
+  invoiceId        String              @db.Uuid
+  bookingProductId String?             @unique @db.Uuid
+  category         InvoiceItemCategory
+  description      String              @db.VarChar(500)
+  quantity         Decimal             @db.Decimal(10, 3)
+  unitPrice        Decimal             @db.Decimal(12, 2)
+  amount           Decimal             @db.Decimal(12, 2)
+  createdById      String              @db.Uuid
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
-  invoice     ServiceInvoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  createdBy   User                @relation(fields: [createdById], references: [id], onDelete: Restrict)
-  attachments InvoiceAttachment[]
+  invoice        ServiceInvoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  bookingProduct BookingProduct?     @relation(fields: [bookingProductId], references: [id], onDelete: SetNull)
+  createdBy      User                @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  attachments    InvoiceAttachment[]
 
   @@index([invoiceId])
 }

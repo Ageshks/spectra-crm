@@ -20,6 +20,7 @@ import {
   CreateCustomerDto,
   ListCustomersDto,
   UpdateAddressDto,
+  UpdateCustomerAdminDto,
   UpdateCustomerDto,
 } from './dto/customers.dto';
 
@@ -148,7 +149,12 @@ export class CustomersService {
     return directoryCustomer(customer);
   }
 
-  async updateByUserId(userId: string, dto: UpdateCustomerDto, actorId: string): Promise<unknown> {
+  async updateByUserId(
+    userId: string,
+    dto: UpdateCustomerDto,
+    actorId: string,
+    newPassword?: string,
+  ): Promise<unknown> {
     const customer = await this.prisma.customer.findUnique({ where: { userId } });
     if (!customer) throw new NotFoundException('Customer profile not found');
 
@@ -166,8 +172,16 @@ export class CustomersService {
       if (clash) throw new BadRequestException('Phone number is already in use');
     }
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: userId }, data: { ...userFields, ...(email ? { email } : {}) } }),
+    const passwordHash = newPassword ? await hashPassword(newPassword) : undefined;
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          ...userFields,
+          ...(email ? { email } : {}),
+          ...(passwordHash ? { passwordHash } : {}),
+        },
+      }),
       this.prisma.customer.update({
         where: { id: customer.id },
         data: {
@@ -178,6 +192,14 @@ export class CustomersService {
           phone: userFields.phone ?? undefined,
         },
       }),
+      ...(passwordHash
+        ? [
+            this.prisma.refreshToken.updateMany({
+              where: { userId, revokedAt: null },
+              data: { revokedAt: new Date() },
+            }),
+          ]
+        : []),
     ]);
 
     await this.audit.log({
@@ -186,33 +208,40 @@ export class CustomersService {
       entity: 'Customer',
       entityId: customer.id,
       userId: actorId,
-      newValues: dto as Prisma.InputJsonValue,
+      newValues: {
+        ...dto,
+        ...(passwordHash ? { passwordUpdated: true } : {}),
+      } as Prisma.InputJsonValue,
     });
     return this.getByUserId(userId);
   }
 
-  async updateAdmin(id: string, dto: UpdateCustomerDto, actor: AuthUser): Promise<unknown> {
+  async updateAdmin(id: string, dto: UpdateCustomerAdminDto, actor: AuthUser): Promise<unknown> {
     const customer = await this.prisma.customer.findFirst({ where: { id, ...(actor.role === Role.SUPER_ADMIN ? {} : { companyId: actor.companyId ?? '__none__' }) } });
     if (!customer) throw new NotFoundException('Customer not found');
+    const { password, ...profileDto } = dto;
     if (customer.userId) {
-      await this.updateByUserId(customer.userId, dto, actor.id);
+      await this.updateByUserId(customer.userId, profileDto, actor.id, password);
     } else {
+      if (password) {
+        throw new BadRequestException('This customer does not have a login account, so its password cannot be changed');
+      }
       const [oldFirst = '', ...oldLastParts] = (customer.contactName ?? '').split(/\s+/);
-      const contactName = dto.firstName !== undefined || dto.lastName !== undefined
-        ? `${dto.firstName ?? oldFirst} ${dto.lastName ?? oldLastParts.join(' ')}`.trim()
+      const contactName = profileDto.firstName !== undefined || profileDto.lastName !== undefined
+        ? `${profileDto.firstName ?? oldFirst} ${profileDto.lastName ?? oldLastParts.join(' ')}`.trim()
         : undefined;
-      const email = dto.email?.trim().toLowerCase();
+      const email = profileDto.email?.trim().toLowerCase();
       await this.prisma.customer.update({
         where: { id },
         data: {
           ...(contactName !== undefined ? { contactName } : {}),
           ...(email !== undefined ? { email } : {}),
-          ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
-          ...(dto.organizationName !== undefined ? { organizationName: dto.organizationName } : {}),
-          ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+          ...(profileDto.phone !== undefined ? { phone: profileDto.phone } : {}),
+          ...(profileDto.organizationName !== undefined ? { organizationName: profileDto.organizationName } : {}),
+          ...(profileDto.notes !== undefined ? { notes: profileDto.notes } : {}),
         },
       });
-      await this.audit.log({ action: 'UPDATE_CUSTOMER', module: 'customers', entity: 'Customer', entityId: id, userId: actor.id, newValues: dto as Prisma.InputJsonValue });
+      await this.audit.log({ action: 'UPDATE_CUSTOMER', module: 'customers', entity: 'Customer', entityId: id, userId: actor.id, newValues: profileDto as Prisma.InputJsonValue });
     }
     return this.getById(id, actor);
   }

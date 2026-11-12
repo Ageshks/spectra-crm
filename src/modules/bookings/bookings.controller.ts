@@ -16,7 +16,7 @@ export class BookingsController {
 
   @Post()
   @Roles(Role.CUSTOMER, Role.ADMIN, Role.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Create a service booking' })
+  @ApiOperation({ summary: 'Create a service booking with optional product selections' })
   @ResponseMessage('Booking created')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateBookingDto) {
     return this.bookings.create(dto, user);

@@ -1,4 +1,4 @@
-import { Global, Injectable, Logger, Module } from '@nestjs/common';
+import { BadRequestException, Global, Injectable, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppConfig } from '../../config/configuration';
 import { ALLOWED_IMAGE_EXTENSIONS, ALLOWED_IMAGE_MIME_TYPES } from '../constants';
@@ -17,7 +17,6 @@ export const validateImageFile = (
   file: Express.Multer.File,
   maxSize: number,
 ): void => {
-  const { BadRequestException } = require('@nestjs/common');
   const allowedMimes = ALLOWED_IMAGE_MIME_TYPES as unknown as string[];
   if (!allowedMimes.includes(file.mimetype)) {
     throw new BadRequestException(
