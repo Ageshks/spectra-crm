@@ -81,6 +81,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
         );
         errors = fieldName ? { field: fieldName } : undefined;
       }
+      const meta = exception.meta as Record<string, unknown> | undefined;
+      const diagnosticMeta = meta
+        ? Object.fromEntries(
+            ['modelName', 'target', 'field_name', 'column', 'constraint', 'relation_name']
+              .filter((key) => meta[key] !== undefined)
+              .map((key) => [key, meta[key]]),
+          )
+        : undefined;
+      this.logger.error(
+        JSON.stringify({
+          path: request.url,
+          method: request.method,
+          prismaCode: exception.code,
+          ...(diagnosticMeta && Object.keys(diagnosticMeta).length > 0
+            ? { meta: diagnosticMeta }
+            : {}),
+        }),
+      );
     } else if (exception instanceof Error) {
       message = 'Internal server error';
       this.logger.error(
