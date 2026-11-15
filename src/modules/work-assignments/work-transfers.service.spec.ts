@@ -26,6 +26,7 @@ describe('WorkTransfersService employee request contract', () => {
           employeeId: 'source-employee',
           status: WorkAssignmentStatus.ACCEPTED,
         }),
+        count: jest.fn().mockResolvedValue(0),
       },
       employee: {
         findUnique: jest.fn().mockResolvedValue({
@@ -69,6 +70,9 @@ describe('WorkTransfersService employee request contract', () => {
     expect(prisma.employee.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'target-employee' } }),
     );
+    expect(prisma.workAssignment.count).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ employeeId: 'target-employee' }) }),
+    );
     expect(prisma.workTransfer.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -79,6 +83,61 @@ describe('WorkTransfersService employee request contract', () => {
         }),
       }),
     );
+  });
+
+  it('rejects a transfer request when the target technician is busy', async () => {
+    const prisma = {
+      workOrder: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'work-order-1',
+          workOrderNumber: 'WO-1',
+          status: WorkOrderStatus.ASSIGNED,
+          companyId: 'company-1',
+          manager: null,
+        }),
+      },
+      workAssignment: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'assignment-1',
+          workOrderId: 'work-order-1',
+          employeeId: 'source-employee',
+          status: WorkAssignmentStatus.ACCEPTED,
+        }),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      employee: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'target-employee',
+          companyId: 'company-1',
+          user: { id: 'target-user', isActive: true },
+          designationRecord: { isActive: true, canUseFieldApp: true },
+        }),
+      },
+      workTransfer: { findFirst: jest.fn(), create: jest.fn() },
+      user: { findMany: jest.fn() },
+    };
+    const service = new WorkTransfersService(
+      prisma as never,
+      { log: jest.fn() } as never,
+      { notifyMany: jest.fn() } as never,
+    );
+
+    await expect(service.request(
+      {
+        workOrderId: 'work-order-1',
+        toEmployeeId: 'target-employee',
+        reason: 'I am unable to complete this assignment',
+      },
+      {
+        id: 'source-user',
+        email: 'source@example.test',
+        role: Role.EMPLOYEE,
+        isActive: true,
+        companyId: 'company-1',
+        employeeId: 'source-employee',
+      },
+    )).rejects.toThrow('Target employee is not available');
+    expect(prisma.workTransfer.create).not.toHaveBeenCalled();
   });
 });
 import { describe, expect, it, jest } from '@jest/globals';

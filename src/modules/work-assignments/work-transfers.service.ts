@@ -42,6 +42,35 @@ export class WorkTransfersService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  private async assertEmployeeAvailable(employeeId: string): Promise<void> {
+    const activeAssignmentCount = await this.prisma.workAssignment.count({
+      where: {
+        employeeId,
+        status: {
+          in: [
+            WorkAssignmentStatus.ASSIGNED,
+            WorkAssignmentStatus.ACCEPTED,
+            WorkAssignmentStatus.IN_PROGRESS,
+          ],
+        },
+        workOrder: {
+          status: {
+            in: [
+              WorkOrderStatus.ASSIGNED,
+              WorkOrderStatus.ACCEPTED,
+              WorkOrderStatus.IN_PROGRESS,
+              WorkOrderStatus.ON_HOLD,
+              WorkOrderStatus.CORRECTION_REQUIRED,
+            ],
+          },
+        },
+      },
+    });
+    if (activeAssignmentCount > 0) {
+      throw new BadRequestException('Target employee is not available');
+    }
+  }
+
   /**
    * An employee requests a transfer of an assigned job. Employees can never
    * reject work directly — they can only ask a manager to move it.
@@ -88,6 +117,7 @@ export class WorkTransfersService {
     ) {
       throw new BadRequestException('Target employee is not an active eligible field technician or temp staff member');
     }
+    await this.assertEmployeeAvailable(target.id);
 
     const pending = await this.prisma.workTransfer.findFirst({
       where: { workOrderId: workOrder.id, fromEmployeeId: actor.employeeId, status: WorkTransferStatus.PENDING },
@@ -190,6 +220,7 @@ export class WorkTransfersService {
     ) {
       throw new BadRequestException('Target employee is not an active eligible field technician or temp staff member');
     }
+    await this.assertEmployeeAvailable(target.id);
     const targetAssignment = await this.prisma.workAssignment.findUnique({
       where: { workOrderId_employeeId: { workOrderId: workOrder.id, employeeId: target.id } },
       select: { id: true },
@@ -308,6 +339,7 @@ export class WorkTransfersService {
     if (!eligibleTarget) {
       throw new BadRequestException('Transfer target is no longer an active eligible field technician or temp staff member');
     }
+    await this.assertEmployeeAvailable(transfer.toEmployeeId);
 
     // Approve: move the assignment to the target employee atomically.
     const assignment = await this.prisma.workAssignment.findFirst({
