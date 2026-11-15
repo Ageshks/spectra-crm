@@ -95,6 +95,21 @@ describe('WorkAssignmentsService mobile contracts', () => {
     const response = await service.accept('assignment-1', actor);
 
     expect(response).toBe(updated);
+    expect(prisma.workAssignment.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: 'assignment-1' },
+      include: expect.objectContaining({
+        workOrder: expect.objectContaining({
+          include: expect.objectContaining({
+            customer: {
+              select: expect.objectContaining({ contactName: true, phone: true }),
+            },
+            serviceLocation: {
+              select: expect.objectContaining({ contactPerson: true, contactNumber: true }),
+            },
+          }),
+        }),
+      }),
+    });
     expect(prisma.workAssignment.updateMany).toHaveBeenCalledWith({
       where: {
         id: 'assignment-1',

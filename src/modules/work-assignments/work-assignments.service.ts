@@ -39,10 +39,24 @@ const assignmentInclude = {
   workOrder: {
     include: {
       customer: {
-        select: { id: true, user: { select: { firstName: true, lastName: true, phone: true } } },
+        select: {
+          id: true,
+          contactName: true,
+          phone: true,
+          user: { select: { firstName: true, lastName: true, phone: true } },
+        },
       },
       service: { select: { id: true, name: true } },
-      serviceLocation: { select: { id: true, locationName: true, address: true, city: true } },
+      serviceLocation: {
+        select: {
+          id: true,
+          locationName: true,
+          address: true,
+          city: true,
+          contactPerson: true,
+          contactNumber: true,
+        },
+      },
       manager: { select: { id: true, user: { select: { id: true, firstName: true, lastName: true } } } },
     },
   },
