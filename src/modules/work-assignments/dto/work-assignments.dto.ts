@@ -13,7 +13,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { WorkAssignmentStatus, WorkTransferStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { ToBoolean } from '../../../common/utils/transformers';
@@ -95,10 +95,12 @@ export class CreateTransferDto {
   @IsNotEmpty()
   toEmployeeId!: string;
 
+  @Transform(({ value }) => typeof value === 'string' && value.trim() === '' ? undefined : value)
+  @IsOptional()
   @IsString()
   @MinLength(5, { message: 'reason must be at least 5 characters' })
   @MaxLength(1000)
-  reason!: string;
+  reason?: string;
 
   @IsOptional()
   @IsString()

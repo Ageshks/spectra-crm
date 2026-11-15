@@ -2,7 +2,7 @@ import { Role, WorkAssignmentStatus, WorkOrderStatus, WorkTransferStatus } from 
 import { WorkTransfersService } from './work-transfers.service';
 
 describe('WorkTransfersService employee request contract', () => {
-  it('creates a manager-pending transfer to an eligible employee profile id', async () => {
+  it('creates a manager-pending transfer without requiring a typed reason', async () => {
     const transfer = {
       id: 'transfer-1',
       workOrderId: 'work-order-1',
@@ -61,7 +61,7 @@ describe('WorkTransfersService employee request contract', () => {
       {
         workOrderId: 'work-order-1',
         toEmployeeId: 'target-employee',
-        reason: 'I am unable to complete this assignment',
+        reason: '',
       },
       actor,
     );
@@ -79,6 +79,7 @@ describe('WorkTransfersService employee request contract', () => {
           workOrderId: 'work-order-1',
           fromEmployeeId: 'source-employee',
           toEmployeeId: 'target-employee',
+          reason: 'Technician unavailable',
           status: WorkTransferStatus.PENDING,
         }),
       }),

@@ -132,7 +132,7 @@ export class WorkTransfersService {
         fromEmployeeId: actor.employeeId,
         toEmployeeId: dto.toEmployeeId,
         requestedById: actor.id,
-        reason: dto.reason,
+        reason: dto.reason?.trim() || 'Technician unavailable',
         note: dto.note,
         status: WorkTransferStatus.PENDING,
       },
@@ -149,7 +149,7 @@ export class WorkTransfersService {
         workOrderId: workOrder.id,
         fromEmployeeId: actor.employeeId,
         toEmployeeId: dto.toEmployeeId,
-        reason: dto.reason,
+        reason: dto.reason?.trim() || 'Technician unavailable',
       },
     });
 
