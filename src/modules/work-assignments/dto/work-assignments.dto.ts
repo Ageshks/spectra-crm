@@ -13,7 +13,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import { Expose, Transform, Type } from 'class-transformer';
 import { WorkAssignmentStatus, WorkTransferStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { ToBoolean } from '../../../common/utils/transformers';
@@ -90,10 +90,16 @@ export class CreateTransferDto {
   @IsNotEmpty()
   workOrderId!: string;
 
+  @Expose()
+  @Transform(({ value, obj }) => value ?? obj.requestedEmployeeId)
   @IsUUID()
   @IsString()
   @IsNotEmpty()
   toEmployeeId!: string;
+
+  @IsOptional()
+  @IsUUID()
+  requestedEmployeeId?: string;
 
   @Transform(({ value }) => typeof value === 'string' && value.trim() === '' ? undefined : value)
   @IsOptional()

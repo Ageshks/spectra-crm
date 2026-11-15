@@ -1,7 +1,21 @@
 import { Role, WorkAssignmentStatus, WorkOrderStatus, WorkTransferStatus } from '@prisma/client';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { CreateTransferDto } from './dto/work-assignments.dto';
 import { WorkTransfersService } from './work-transfers.service';
 
 describe('WorkTransfersService employee request contract', () => {
+  it('accepts requestedEmployeeId as an alias for toEmployeeId', async () => {
+    const dto = plainToInstance(CreateTransferDto, {
+      workOrderId: '00000000-0000-4000-8000-000000000001',
+      requestedEmployeeId: '00000000-0000-4000-8000-000000000002',
+      reason: 'Technician unavailable - schedule conflict',
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+    expect(dto.toEmployeeId).toBe('00000000-0000-4000-8000-000000000002');
+  });
+
   it('creates a manager-pending transfer without requiring a typed reason', async () => {
     const transfer = {
       id: 'transfer-1',
