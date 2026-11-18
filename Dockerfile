@@ -21,7 +21,8 @@ RUN npm ci --omit=dev && npx prisma generate && npm cache clean --force \
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --chown=app:app docker-entrypoint.sh ./docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh
+RUN mkdir -p /app/storage/uploads/work-photos && chown -R app:app /app/storage \
+  && chmod +x ./docker-entrypoint.sh
 USER app
 EXPOSE 3000
 ENTRYPOINT ["/sbin/tini", "--"]

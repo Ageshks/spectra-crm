@@ -154,6 +154,66 @@ export class OvertimeService {
     };
   }
 
+  /** Remind technicians five minutes before the standard shift threshold. */
+  @Cron('* * * * *', { name: 'overtime-five-minute-reminder', timeZone: 'Asia/Kolkata' })
+  async remindBeforeOvertimeEligibility(): Promise<void> {
+    const reminderCutoff = new Date(Date.now() - (STANDARD_SHIFT_MINUTES - 5) * 60_000);
+    const previousMinuteCutoff = new Date(reminderCutoff.getTime() - 60_000);
+    const attendances = await this.prisma.attendance.findMany({
+      where: {
+        employeeId: { not: null },
+        checkInTime: { gt: previousMinuteCutoff, lte: reminderCutoff },
+        checkOutTime: null,
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        employee: {
+          select: {
+            userId: true,
+            assignments: {
+              where: { status: WorkAssignmentStatus.IN_PROGRESS },
+              select: { id: true },
+              take: 1,
+            },
+          },
+        },
+      },
+      take: 500,
+    });
+
+    for (const attendance of attendances) {
+      if (!attendance.employeeId || !attendance.employee?.assignments.length) continue;
+      const existingOvertime = await this.prisma.overtime.findFirst({
+        where: {
+          attendanceId: attendance.id,
+          status: { not: OvertimeStatus.REJECTED },
+        },
+        select: { id: true },
+      });
+      if (existingOvertime) continue;
+
+      const existingReminder = await this.prisma.notification.findFirst({
+        where: {
+          userId: attendance.employee.userId,
+          type: NotificationType.OVERTIME_REMINDER,
+          referenceId: attendance.id,
+        },
+        select: { id: true },
+      });
+      if (existingReminder) continue;
+
+      await this.notifications.notify({
+        userId: attendance.employee.userId,
+        title: 'Overtime application reminder',
+        message: 'Your 8 hours 30 minutes shift threshold is 5 minutes away. If work is still in progress at the threshold, submit an overtime request from your work profile.',
+        type: NotificationType.OVERTIME_REMINDER,
+        referenceType: 'overtime_reminder',
+        referenceId: attendance.id,
+      });
+    }
+  }
+
   /** Automatically check out employees after their standard shift and notify them once. */
   @Cron('* * * * *', { name: 'attendance-eight-and-a-half-hour-auto-checkout', timeZone: 'Asia/Kolkata' })
   async autoCheckoutAfterStandardShift(): Promise<void> {

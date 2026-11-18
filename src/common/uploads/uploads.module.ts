@@ -1,7 +1,11 @@
 import { BadRequestException, Global, Injectable, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
 import { AppConfig } from '../../config/configuration';
 import { ALLOWED_IMAGE_EXTENSIONS, ALLOWED_IMAGE_MIME_TYPES } from '../constants';
+import sharp from 'sharp';
 
 export interface UploadedImage {
   imageUrl: string;
@@ -32,6 +36,64 @@ export const validateImageFile = (
     throw new BadRequestException('Empty file upload');
   }
 };
+
+export const WORK_PHOTO_URL_PREFIX = '/uploads/work-photos/';
+
+export const getWorkPhotoStorageDirectory = (storageRoot?: string): string =>
+  join(resolve(storageRoot ?? process.env.UPLOAD_STORAGE_DIR ?? join(process.cwd(), 'storage', 'uploads')), 'work-photos');
+
+@Injectable()
+export class LocalWorkPhotoStorageService {
+  private readonly storageDirectory: string;
+
+  constructor(config: ConfigService) {
+    this.storageDirectory = getWorkPhotoStorageDirectory(
+      config.get<string>('UPLOAD_STORAGE_DIR'),
+    );
+  }
+
+  async save(file: Express.Multer.File): Promise<UploadedImage> {
+    const { data, info } = await sharp(file.buffer)
+      .rotate()
+      .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer({ resolveWithObject: true });
+    const fileName = `${randomUUID()}.jpg`;
+    await mkdir(this.storageDirectory, { recursive: true, mode: 0o750 });
+    await writeFile(join(this.storageDirectory, fileName), data, { flag: 'wx', mode: 0o640 });
+
+    const imageUrl = `${WORK_PHOTO_URL_PREFIX}${fileName}`;
+    return {
+      imageUrl,
+      thumbnailUrl: imageUrl,
+      publicId: fileName,
+      format: 'jpg',
+      bytes: data.length,
+      width: info.width,
+      height: info.height,
+    };
+  }
+
+  async delete(imageUrl: string): Promise<void> {
+    let pathname = imageUrl;
+    if (/^https?:\/\//i.test(imageUrl)) {
+      try {
+        pathname = new URL(imageUrl).pathname;
+      } catch {
+        return;
+      }
+    }
+    if (!pathname.startsWith(WORK_PHOTO_URL_PREFIX)) return;
+
+    const fileName = decodeURIComponent(pathname.slice(WORK_PHOTO_URL_PREFIX.length));
+    if (!fileName || basename(fileName) !== fileName) return;
+    try {
+      await unlink(join(this.storageDirectory, fileName));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+}
 
 /**
  * Reusable Cloudinary service (§22). Configured purely from env vars, degrades
@@ -80,7 +142,15 @@ export class CloudinaryService {
   async uploadImage(
     file: Express.Multer.File,
     folder = 'spectra',
+    compress = false,
   ): Promise<UploadedImage> {
+    const uploadBuffer = compress
+      ? await sharp(file.buffer)
+          .rotate()
+          .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 82, mozjpeg: true })
+          .toBuffer()
+      : file.buffer;
     if (!this.configured) {
       return this.localFallback(folder, file.originalname || 'image.jpg');
     }
@@ -116,7 +186,7 @@ export class CloudinaryService {
           });
         },
       );
-      stream.end(file.buffer);
+      stream.end(uploadBuffer);
     });
   }
 
@@ -146,7 +216,7 @@ export class CloudinaryService {
 
 @Global()
 @Module({
-  providers: [CloudinaryService],
-  exports: [CloudinaryService],
+  providers: [CloudinaryService, LocalWorkPhotoStorageService],
+  exports: [CloudinaryService, LocalWorkPhotoStorageService],
 })
 export class UploadsModule {}

@@ -2,8 +2,9 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { json, urlencoded } from 'express';
+import { json, static as serveStatic, urlencoded } from 'express';
 import helmet from 'helmet';
+import { join } from 'node:path';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -35,6 +36,19 @@ async function bootstrap(): Promise<void> {
   const bodyLimit = getApp<string>('bodyLimit', process.env.BODY_LIMIT ?? '1mb');
   app.use(json({ limit: bodyLimit }));
   app.use(urlencoded({ extended: true, limit: bodyLimit }));
+
+  const uploadStorageDir = get<string>(
+    'UPLOAD_STORAGE_DIR',
+    join(process.cwd(), 'storage', 'uploads'),
+  );
+  app.use(
+    '/uploads/work-photos',
+    serveStatic(join(uploadStorageDir, 'work-photos'), {
+      dotfiles: 'deny',
+      index: false,
+      maxAge: '1d',
+    }),
+  );
 
   const corsOrigins = getApp<string[]>('corsOrigins', []);
   app.enableCors({

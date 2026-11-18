@@ -22,6 +22,7 @@ function setup(attendanceRecord: Record<string, unknown> | null = null) {
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 'overtime-1' }),
     },
+    notification: { findFirst: jest.fn().mockResolvedValue(null) },
   };
   const attendance = { resolveEmployeeId: jest.fn().mockResolvedValue(employeeId) };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
@@ -93,6 +94,39 @@ describe('OvertimeService shift length', () => {
       });
       expect(notifications.notify).toHaveBeenCalledWith(expect.objectContaining({
         message: 'Your attendance was checked out automatically after 8 hours 30 minutes.',
+      }));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('sends one overtime reminder five minutes before the standard shift threshold', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-11-12T12:00:00.000Z'));
+    const checkInTime = new Date('2026-11-12T03:34:30.000Z');
+    const { service, prisma, notifications } = setup();
+    prisma.attendance.findMany.mockResolvedValue([{
+      id: 'attendance-1',
+      employeeId,
+      checkInTime,
+      employee: { userId: 'employee-user-1', assignments: [{ id: 'assignment-1' }] },
+    }]);
+
+    try {
+      await service.remindBeforeOvertimeEligibility();
+
+      expect(prisma.attendance.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          checkInTime: {
+            gt: new Date('2026-11-12T03:34:00.000Z'),
+            lte: new Date('2026-11-12T03:35:00.000Z'),
+          },
+        }),
+      }));
+      expect(notifications.notify).toHaveBeenCalledWith(expect.objectContaining({
+        userId: 'employee-user-1',
+        type: 'OVERTIME_REMINDER',
+        referenceId: 'attendance-1',
       }));
     } finally {
       jest.useRealTimers();

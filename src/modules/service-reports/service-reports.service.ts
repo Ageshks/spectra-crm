@@ -199,6 +199,15 @@ export class ServiceReportsService {
       },
       include: reportInclude,
     });
+    await this.prisma.workPhoto.updateMany({
+      where: { workOrderId: workOrder.id, serviceReportId: null },
+      data: { serviceReportId: report.id },
+    });
+    const reportPhotos = await this.prisma.workPhoto.findMany({
+      where: { serviceReportId: report.id },
+      select: { id: true, imageUrl: true, thumbnailUrl: true, caption: true },
+    });
+    const reportWithPhotos = { ...report, photos: reportPhotos };
 
     await this.audit.log({
       action: 'CREATE_SERVICE_REPORT',
@@ -212,7 +221,7 @@ export class ServiceReportsService {
     if (dto.submit) {
       return this.submit(report.id, actor, {});
     }
-    return report;
+    return reportWithPhotos;
   }
 
   async update(id: string, dto: UpdateServiceReportDto, actor: AuthUser): Promise<unknown> {

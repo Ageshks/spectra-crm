@@ -11,7 +11,7 @@ import { AppConfig } from '../../config/configuration';
 import { normalizePagination, paginated, PaginatedResult, safeOrderBy } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthUser } from '../../common/types/auth.types';
-import { CloudinaryService, validateImageFile } from '../../common/uploads/uploads.module';
+import { LocalWorkPhotoStorageService, validateImageFile } from '../../common/uploads/uploads.module';
 import { ListWorkPhotosDto, UploadWorkPhotoDto } from './dto/work-photos.dto';
 
 export const photoInclude = {
@@ -27,7 +27,7 @@ export class WorkPhotosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    readonly cloudinary: CloudinaryService,
+    readonly storage: LocalWorkPhotoStorageService,
     config: ConfigService,
   ) {
     const uploads = config.get<AppConfig['uploads']>('uploads') as
@@ -72,17 +72,23 @@ export class WorkPhotosService {
     if (!file) throw new BadRequestException('photo file is required (field "photo")');
     validateImageFile(file, this.maxFileSize);
     await this.assertAccess(dto.workOrderId, actor);
-    if (dto.serviceReportId) {
-      const report = await this.prisma.serviceReport.findUnique({
-        where: { id: dto.serviceReportId },
-      });
-      if (!report) throw new BadRequestException('Service report does not exist');
+    const report = await this.prisma.serviceReport.findUnique({
+      where: dto.serviceReportId
+        ? { id: dto.serviceReportId }
+        : { workOrderId: dto.workOrderId },
+    });
+    if (dto.serviceReportId && !report) {
+      throw new BadRequestException('Service report does not exist');
+    }
+    let serviceReportId = dto.serviceReportId;
+    if (report) {
       if (report.workOrderId !== dto.workOrderId) {
         throw new BadRequestException('Service report belongs to a different work order');
       }
       if (report.status !== 'DRAFT' && report.status !== 'CORRECTION_REQUIRED') {
         throw new BadRequestException('Photos can only be added to a draft or correction-required report');
       }
+      serviceReportId = report.id;
       if (actor.role === Role.EMPLOYEE) {
         const owned = await this.prisma.serviceReport.findFirst({
           where: { id: report.id, employee: { userId: actor.id } },
@@ -91,11 +97,11 @@ export class WorkPhotosService {
         if (!owned) throw new ForbiddenException('This report does not belong to you');
       }
     }
-    const uploaded = await this.cloudinary.uploadImage(file, 'spectra/work-photos');
+    const uploaded = await this.storage.save(file);
     const photo = await this.prisma.workPhoto.create({
       data: {
         workOrderId: dto.workOrderId,
-        serviceReportId: dto.serviceReportId,
+        serviceReportId,
         uploadedById: actor.id,
         imageUrl: uploaded.imageUrl,
         thumbnailUrl: uploaded.thumbnailUrl,
@@ -168,6 +174,7 @@ export class WorkPhotosService {
     if (!photo) throw new NotFoundException('Photo not found');
     await this.assertAccess(photo.workOrderId, actor);
     await this.prisma.workPhoto.delete({ where: { id } });
+    await this.storage.delete(photo.imageUrl);
     await this.audit.log({
       action: 'DELETE_WORK_PHOTO',
       module: 'work-photos',

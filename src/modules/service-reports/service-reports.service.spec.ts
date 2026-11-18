@@ -22,6 +22,10 @@ describe('ServiceReportsService assignment ownership', () => {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({ id: 'report-id', employeeId: 'actual-employee-id' }),
       },
+      workPhoto: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     const sequences = { next: jest.fn().mockResolvedValue('RPT-1') };
@@ -41,7 +45,7 @@ describe('ServiceReportsService assignment ownership', () => {
 
   it('derives the employee profile from the authenticated user before checking an assignment', async () => {
     const { prisma, service } = setup();
-    await service.create({ workOrderId: 'work-order-id' } as never, actor);
+    const report = await service.create({ workOrderId: 'work-order-id' } as never, actor) as { photos: unknown[] };
 
     expect(prisma.employee.findUnique).toHaveBeenCalledWith({
       where: { userId: actor.id },
@@ -53,6 +57,11 @@ describe('ServiceReportsService assignment ownership', () => {
     expect(prisma.serviceReport.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ employeeId: 'actual-employee-id' }),
     }));
+    expect(prisma.workPhoto.updateMany).toHaveBeenCalledWith({
+      where: { workOrderId: 'work-order-id', serviceReportId: null },
+      data: { serviceReportId: 'report-id' },
+    });
+    expect(report.photos).toEqual([]);
   });
 
   it('keeps assignment enforcement when the employee has no matching work assignment', async () => {
