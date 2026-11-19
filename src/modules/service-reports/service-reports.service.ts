@@ -260,7 +260,8 @@ export class ServiceReportsService {
     dto: ReviewServiceReportUpdateDto,
     actor: AuthUser,
   ): Promise<unknown> {
-    if (![Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN].includes(actor.role)) {
+    const reviewerRoles: Role[] = [Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN];
+    if (!reviewerRoles.includes(actor.role)) {
       throw new ForbiddenException('Only reviewers can edit a submitted report');
     }
     const report = await this.load(id);
