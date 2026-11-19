@@ -10,6 +10,8 @@ const shiftStart = new Date('2026-11-12T00:00:00.000Z');
 function setup(attendanceRecord: Record<string, unknown> | null = null) {
   const prisma = {
     employee: { findUnique: jest.fn().mockResolvedValue({ companyId }) },
+    manager: { findUnique: jest.fn().mockResolvedValue({ companyId }) },
+    workOrder: { findFirst: jest.fn().mockResolvedValue({ id: 'managed-work-order-1' }) },
     attendance: {
       findFirst: jest.fn().mockResolvedValue(attendanceRecord),
       findMany: jest.fn().mockResolvedValue([]),
@@ -24,7 +26,10 @@ function setup(attendanceRecord: Record<string, unknown> | null = null) {
     },
     notification: { findFirst: jest.fn().mockResolvedValue(null) },
   };
-  const attendance = { resolveEmployeeId: jest.fn().mockResolvedValue(employeeId) };
+  const attendance = {
+    resolveEmployeeId: jest.fn().mockResolvedValue(employeeId),
+    resolveManagerId: jest.fn().mockResolvedValue('manager-1'),
+  };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
   const notifications = { notify: jest.fn().mockResolvedValue(undefined) };
   const service = new OvertimeService(
@@ -45,7 +50,7 @@ function setup(attendanceRecord: Record<string, unknown> | null = null) {
 }
 
 describe('OvertimeService shift length', () => {
-  it('requires 8 hours 30 minutes plus the separately selected break before overtime', async () => {
+  it('includes the one-hour break in the 8 hours 30 minutes shift', async () => {
     const record = {
       id: 'attendance-1',
       employeeId,
@@ -63,7 +68,38 @@ describe('OvertimeService shift length', () => {
 
     expect(prisma.overtime.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
-        durationMinutes: 1,
+        durationMinutes: 61,
+        breakMinutes: 60,
+      }),
+    }));
+  });
+
+  it('allows a manager with in-progress managed work to request overtime', async () => {
+    const record = {
+      id: 'manager-attendance-1',
+      managerId: 'manager-1',
+      date: shiftStart,
+      checkInTime: shiftStart,
+      checkOutTime: new Date('2026-11-12T09:00:00.000Z'),
+      workingMinutes: 540,
+    };
+    const { service, prisma } = setup(record);
+    const actor = {
+      id: 'manager-user-1',
+      role: Role.MANAGER,
+      managerId: 'manager-1',
+      companyId,
+      email: 'manager@example.test',
+      isActive: true,
+    };
+
+    await service.request({ date: '2026-11-12' }, actor);
+
+    expect(prisma.overtime.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        managerId: 'manager-1',
+        attendanceId: 'manager-attendance-1',
+        durationMinutes: 30,
         breakMinutes: 60,
       }),
     }));
@@ -100,10 +136,10 @@ describe('OvertimeService shift length', () => {
     }
   });
 
-  it('sends one overtime reminder five minutes before the standard shift threshold', async () => {
+  it('sends one overtime reminder fifteen minutes before the standard shift threshold', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-11-12T12:00:00.000Z'));
-    const checkInTime = new Date('2026-11-12T03:34:30.000Z');
+    const checkInTime = new Date('2026-11-12T03:44:30.000Z');
     const { service, prisma, notifications } = setup();
     prisma.attendance.findMany.mockResolvedValue([{
       id: 'attendance-1',
@@ -118,8 +154,8 @@ describe('OvertimeService shift length', () => {
       expect(prisma.attendance.findMany).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({
           checkInTime: {
-            gt: new Date('2026-11-12T03:34:00.000Z'),
-            lte: new Date('2026-11-12T03:35:00.000Z'),
+            gt: new Date('2026-11-12T03:44:00.000Z'),
+            lte: new Date('2026-11-12T03:45:00.000Z'),
           },
         }),
       }));
@@ -133,14 +169,14 @@ describe('OvertimeService shift length', () => {
     }
   });
 
-  it('rejects overtime before the standard shift and separate break are complete', async () => {
+  it('rejects overtime before the full 8 hours 30 minutes shift is complete', async () => {
     const record = {
       id: 'attendance-1',
       employeeId,
       date: shiftStart,
       checkInTime: shiftStart,
-      checkOutTime: new Date('2026-11-12T09:29:00.000Z'),
-      workingMinutes: 569,
+      checkOutTime: new Date('2026-11-12T08:29:00.000Z'),
+      workingMinutes: 509,
     };
     const { service, prisma, actor } = setup(record);
 

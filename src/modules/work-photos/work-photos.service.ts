@@ -153,7 +153,7 @@ export class WorkPhotosService {
     if (actor.role === Role.MANAGER) {
       and.push({ workOrder: { managerId: actor.managerId ?? '__none__' } });
     }
-    if (actor.role !== Role.SUPER_ADMIN) and.push({ workOrder: { companyId: actor.companyId ?? '__none__' } });
+    if (actor.role !== Role.SUPER_ADMIN && actor.role !== Role.ADMIN) and.push({ workOrder: { companyId: actor.companyId ?? '__none__' } });
     const where: Prisma.WorkPhotoWhereInput = and.length ? { AND: and } : {};
     const [items, total] = await this.prisma.$transaction([
       this.prisma.workPhoto.findMany({

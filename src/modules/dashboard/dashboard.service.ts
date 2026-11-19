@@ -61,7 +61,12 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({ where: { ...attendanceCompanyScope, date: { gte: start, lte: end }, status: 'PRESENT' } }),
       this.prisma.attendance.count({ where: { ...attendanceCompanyScope, date: { gte: start, lte: end }, status: 'LATE' } }),
-      this.prisma.overtime.count({ where: { ...(companyId ? { employee: { companyId } } : {}), status: 'PENDING' } }),
+      this.prisma.overtime.count({
+        where: {
+          ...(companyId ? { OR: [{ employee: { companyId } }, { manager: { companyId } }] } : {}),
+          status: 'PENDING',
+        },
+      }),
     ]);
 
     return {

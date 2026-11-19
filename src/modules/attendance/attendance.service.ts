@@ -9,7 +9,7 @@ import { AuditService } from '../../common/audit/audit.module';
 import { SETTING_KEYS } from '../../common/constants';
 import { SettingsService } from '../../common/settings/settings.module';
 import { AuthUser } from '../../common/types/auth.types';
-import { minutesOfDayInTz, timeToMinutes, todayDateString } from '../../common/utils/date.util';
+import { todayDateString } from '../../common/utils/date.util';
 import { isValidCoordinate } from '../../common/utils/geo.util';
 import {
   normalizePagination,
@@ -75,17 +75,22 @@ export class AttendanceService {
     return employee.id;
   }
 
+  async resolveManagerId(actor: AuthUser): Promise<string> {
+    if (actor.managerId) return actor.managerId;
+    const manager = await this.prisma.manager.findUnique({
+      where: { userId: actor.id },
+      select: { id: true },
+    });
+    if (!manager) throw new ForbiddenException('Manager profile not found');
+    return manager.id;
+  }
+
   private async resolveStaff(actor: AuthUser): Promise<{ employeeId: string } | { managerId: string }> {
     if (actor.role === Role.EMPLOYEE) {
       return { employeeId: await this.resolveEmployeeId(actor) };
     }
     if (actor.role === Role.MANAGER) {
-      const manager = await this.prisma.manager.findUnique({
-        where: { userId: actor.id },
-        select: { id: true },
-      });
-      if (!manager) throw new ForbiddenException('Manager profile not found');
-      return { managerId: manager.id };
+      return { managerId: await this.resolveManagerId(actor) };
     }
     throw new ForbiddenException('Staff profile not found');
   }
@@ -110,16 +115,11 @@ export class AttendanceService {
     if (existing?.checkInTime) {
       throw new BadRequestException('You have already checked in today');
     }
-    const workStart = (await this.settings.getString(SETTING_KEYS.WORK_START_TIME, actor.companyId)) ?? '09:00';
-    const lateThreshold = await this.settings.getNumber(SETTING_KEYS.LATE_THRESHOLD_MINUTES, 15, actor.companyId);
-    const lateCutoff = timeToMinutes(workStart) + lateThreshold;
-    const mins = minutesOfDayInTz(now);
-    const status = mins > lateCutoff ? AttendanceStatus.LATE : AttendanceStatus.PRESENT;
     const base = {
       checkInTime: now,
       checkInLatitude: dto.latitude,
       checkInLongitude: dto.longitude,
-      status,
+      status: AttendanceStatus.PRESENT,
     };
     const record = existing
       ? await this.prisma.attendance.update({

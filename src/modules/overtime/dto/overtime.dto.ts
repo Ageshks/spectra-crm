@@ -15,7 +15,7 @@ export class CreateOvertimeDto {
   @Type(() => Number)
   @IsInt()
   @IsIn([0, 60], { message: 'breakMinutes must be 0 or 60' })
-  breakMinutes = 0;
+  breakMinutes = 60;
 
   @IsOptional()
   @IsString()

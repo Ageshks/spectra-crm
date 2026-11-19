@@ -20,7 +20,7 @@ export class OvertimeController {
   constructor(private readonly overtime: OvertimeService) {}
 
   @Post()
-  @Roles(Role.EMPLOYEE, Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Request overtime (duration computed server-side from attendance)' })
   @ResponseMessage('Overtime requested')
   request(@CurrentUser() user: AuthUser, @Body() dto: CreateOvertimeDto) {
@@ -36,7 +36,7 @@ export class OvertimeController {
   }
 
   @Get('eligibility/today')
-  @Roles(Role.EMPLOYEE)
+  @Roles(Role.EMPLOYEE, Role.MANAGER)
   @ApiOperation({ summary: "Check whether the current employee can request overtime today" })
   @ResponseMessage('Overtime eligibility retrieved')
   eligibilityToday(@CurrentUser() user: AuthUser) {

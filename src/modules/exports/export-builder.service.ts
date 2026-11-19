@@ -358,9 +358,25 @@ export class ExportBuilderService {
   ): Promise<FetchResult> {
     const dto = await this.validateFilters(ListOvertimeDto, rawFilters);
     const and: Prisma.OvertimeWhereInput[] = [];
-    if (actor.role !== Role.SUPER_ADMIN) and.push({ employee: { companyId: actor.companyId ?? '__none__' } });
+    if (actor.role !== Role.SUPER_ADMIN) {
+      and.push({
+        OR: [
+          { employee: { companyId: actor.companyId ?? '__none__' } },
+          { manager: { companyId: actor.companyId ?? '__none__' } },
+        ],
+      });
+    }
     if (actor.role === Role.EMPLOYEE) {
       and.push({ employeeId: await this.attendance.resolveEmployeeId(actor) });
+    } else if (actor.role === Role.MANAGER) {
+      const managerId = await this.attendance.resolveManagerId(actor);
+      and.push({
+        OR: [
+          { managerId },
+          { employee: { assignments: { some: { workOrder: { managerId } } } } },
+        ],
+      });
+      if (dto.employeeId) and.push({ employeeId: dto.employeeId });
     } else if (dto.employeeId) {
       and.push({ employeeId: dto.employeeId });
     }
@@ -378,11 +394,14 @@ export class ExportBuilderService {
       where,
       take: rowLimit,
       orderBy: { date: 'desc' },
-      include: { employee: { include: { user: { select: { firstName: true, lastName: true } } } } },
+      include: {
+        employee: { include: { user: { select: { firstName: true, lastName: true } } } },
+        manager: { include: { user: { select: { firstName: true, lastName: true } } } },
+      },
     });
     const columns: ColumnDef[] = [
       { key: 'date', header: 'Date' },
-      { key: 'employee', header: 'Employee' },
+      { key: 'employee', header: 'Staff Member' },
       { key: 'startTime', header: 'Start Time' },
       { key: 'endTime', header: 'End Time' },
       { key: 'durationMinutes', header: 'Duration (min)' },
@@ -395,7 +414,7 @@ export class ExportBuilderService {
     ];
     const rows = items.map((o) => ({
       date: o.date ? o.date.toISOString().slice(0, 10) : '',
-      employee: `${o.employee?.user?.firstName ?? ''} ${o.employee?.user?.lastName ?? ''}`.trim(),
+      employee: `${o.employee?.user?.firstName ?? o.manager?.user?.firstName ?? ''} ${o.employee?.user?.lastName ?? o.manager?.user?.lastName ?? ''}`.trim(),
       startTime: o.startTime,
       endTime: o.endTime,
       durationMinutes: o.durationMinutes,

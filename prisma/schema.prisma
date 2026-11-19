@@ -438,6 +438,7 @@ model Manager {
   enquiries   Enquiry[]    @relation("EnquiryAssignedManager")
   workOrders  WorkOrder[]  @relation("WorkOrderManager")
   attendances Attendance[]
+  overtimes   Overtime[]
 
   @@index([createdAt])
   @@index([companyId])
@@ -951,7 +952,8 @@ model Attendance {
 
 model Overtime {
   id               String                @id @default(uuid()) @db.Uuid
-  employeeId       String                @db.Uuid
+  employeeId       String?               @db.Uuid
+  managerId        String?               @db.Uuid
   attendanceId     String?               @db.Uuid
   date             DateTime              @db.Date
   startTime        String                @db.VarChar(8)
@@ -969,11 +971,13 @@ model Overtime {
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 
-  employee   Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  manager    Manager?    @relation(fields: [managerId], references: [id], onDelete: Cascade)
   attendance Attendance? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
   approvedBy User?       @relation("OvertimeApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@index([employeeId])
+  @@index([managerId])
   @@index([date])
   @@index([status])
 }
