@@ -20,6 +20,7 @@ import {
   CreateServiceReportDto,
   ListServiceReportsDto,
   ReportDecisionDto,
+  ReviewServiceReportUpdateDto,
   UpdateServiceReportDto,
 } from './dto/service-reports.dto';
 import { ServiceReportsService } from './service-reports.service';
@@ -64,6 +65,19 @@ export class ServiceReportsController {
     @Body() dto: UpdateServiceReportDto,
   ) {
     return this.reports.update(id, dto, user);
+  }
+
+  @Patch(':id/review')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOperation({ summary: 'Reviewer edits a submitted report before approving or requesting corrections' })
+  @ResponseMessage('Service report review edits saved')
+  editInReview(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReviewServiceReportUpdateDto,
+  ) {
+    return this.reports.editInReview(id, dto, user);
   }
 
   @Delete(':id')

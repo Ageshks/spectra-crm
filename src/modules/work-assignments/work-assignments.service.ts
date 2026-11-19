@@ -57,6 +57,23 @@ const assignmentInclude = {
           contactNumber: true,
         },
       },
+      serviceReport: {
+        select: {
+          id: true,
+          reportNumber: true,
+          status: true,
+          updatedAt: true,
+          workSummary: true,
+          workPerformed: true,
+          issuesFound: true,
+          materialsUsed: true,
+          recommendations: true,
+          completionRemarks: true,
+          photos: {
+            select: { id: true, imageUrl: true, thumbnailUrl: true, caption: true },
+          },
+        },
+      },
       manager: { select: { id: true, user: { select: { id: true, firstName: true, lastName: true } } } },
     },
   },
@@ -387,13 +404,12 @@ export class WorkAssignmentsService {
         actorId: actor.id,
         note: dto.note ?? `Completed by ${assignment.employee.user.firstName}`,
       });
-      await this.bookings.syncStatus(assignment.workOrder.bookingId, BookingStatus.COMPLETED);
       const customerUserId = await this.resolveCustomerUserId(assignment.workOrderId);
       if (customerUserId) {
         await this.notifications.notify({
           userId: customerUserId,
-          title: 'Service completed',
-          message: `Field work for ${assignment.workOrder.workOrderNumber} is complete — report under review`,
+          title: 'Field work finished',
+          message: `Field work for ${assignment.workOrder.workOrderNumber} is finished. The service report must be reviewed before the booking is complete.`,
           type: NotificationType.SERVICE_COMPLETED,
           referenceType: 'workOrder',
           referenceId: assignment.workOrderId,
@@ -402,8 +418,8 @@ export class WorkAssignmentsService {
       if (assignment.workOrder.manager) {
         await this.notifications.notify({
           userId: assignment.workOrder.manager.user.id,
-          title: 'Employee completion',
-          message: `${assignment.workOrder.workOrderNumber} has been marked complete`,
+          title: 'Field work finished',
+          message: `Field work for ${assignment.workOrder.workOrderNumber} is finished; the service report must be reviewed before the booking is complete.`,
           type: NotificationType.GENERAL,
           referenceType: 'workOrder',
           referenceId: assignment.workOrderId,

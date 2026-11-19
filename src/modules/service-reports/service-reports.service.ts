@@ -32,6 +32,7 @@ import {
   CreateReportLocationDto,
   ListServiceReportsDto,
   ReportDecisionDto,
+  ReviewServiceReportUpdateDto,
   UpdateServiceReportDto,
 } from './dto/service-reports.dto';
 const reportInclude = {
@@ -249,6 +250,49 @@ export class ServiceReportsService {
       entity: 'ServiceReport',
       entityId: id,
       userId: actor.id,
+      newValues: dto as unknown as Prisma.InputJsonValue,
+    });
+    return updated;
+  }
+
+  async editInReview(
+    id: string,
+    dto: ReviewServiceReportUpdateDto,
+    actor: AuthUser,
+  ): Promise<unknown> {
+    if (![Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN].includes(actor.role)) {
+      throw new ForbiddenException('Only reviewers can edit a submitted report');
+    }
+    const report = await this.load(id);
+    this.assertAccess(report, actor);
+    if (
+      report.status !== ServiceReportStatus.SUBMITTED &&
+      report.status !== ServiceReportStatus.UNDER_REVIEW
+    ) {
+      throw new BadRequestException('Only submitted reports awaiting review can be edited');
+    }
+    if (Object.keys(dto).length === 0) {
+      throw new BadRequestException('Provide at least one report field to update');
+    }
+    const updated = await this.prisma.serviceReport.update({
+      where: { id },
+      data: dto,
+      include: reportInclude,
+    });
+    await this.audit.log({
+      action: 'EDIT_SERVICE_REPORT_DURING_REVIEW',
+      module: 'service-reports',
+      entity: 'ServiceReport',
+      entityId: id,
+      userId: actor.id,
+      oldValues: {
+        workSummary: report.workSummary,
+        workPerformed: report.workPerformed,
+        issuesFound: report.issuesFound,
+        materialsUsed: report.materialsUsed,
+        recommendations: report.recommendations,
+        completionRemarks: report.completionRemarks,
+      },
       newValues: dto as unknown as Prisma.InputJsonValue,
     });
     return updated;

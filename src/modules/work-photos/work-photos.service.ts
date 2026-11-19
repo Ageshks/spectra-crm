@@ -35,7 +35,7 @@ export class WorkPhotosService {
       | undefined;
     this.maxFileSize =
       uploads?.maxFileSize ??
-      Number(config.get<string>('MAX_FILE_SIZE_BYTES') ?? 5 * 1024 * 1024);
+      Number(config.get<string>('MAX_FILE_SIZE_BYTES') ?? 8 * 1024 * 1024);
   }
 
   async assertWorkOrderAccess(workOrderId: string, actor: AuthUser): Promise<void> {
@@ -124,15 +124,19 @@ export class WorkPhotosService {
     files: Express.Multer.File[] | undefined,
     dto: UploadWorkPhotoDto,
     actor: AuthUser,
-  ): Promise<{ uploaded: unknown[]; failures: Array<{ index: number; message: string }> }> {
+  ): Promise<{ uploaded: unknown[]; failures: Array<{ index: number; fileName: string; message: string }> }> {
     if (!files?.length) throw new BadRequestException('At least one photo is required (field "photos")');
     const uploaded: unknown[] = [];
-    const failures: Array<{ index: number; message: string }> = [];
+    const failures: Array<{ index: number; fileName: string; message: string }> = [];
     for (const [index, file] of files.entries()) {
       try {
         uploaded.push(await this.upload(file, dto, actor));
       } catch (error) {
-        failures.push({ index, message: error instanceof Error ? error.message : 'Photo upload failed' });
+        failures.push({
+          index,
+          fileName: file.originalname || `photo-${index + 1}`,
+          message: error instanceof Error ? error.message : 'Photo upload failed',
+        });
       }
     }
     return { uploaded, failures };

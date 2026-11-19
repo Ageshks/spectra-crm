@@ -94,7 +94,7 @@ const envSchema = Joi.object({
   SMTP_USER: Joi.string().allow('').default(''),
   SMTP_PASSWORD: Joi.string().allow('').default(''),
   SMTP_FROM: Joi.string().allow('').default(''),
-  MAX_FILE_SIZE_BYTES: Joi.number().integer().min(1024).max(25 * 1024 * 1024).default(5 * 1024 * 1024),
+  MAX_FILE_SIZE_BYTES: Joi.number().integer().min(1024).max(25 * 1024 * 1024).default(8 * 1024 * 1024),
   GPS_ATTENDANCE_ENABLED: Joi.string().valid('true', 'false').default('false'),
   GPS_ATTENDANCE_RADIUS_METERS: Joi.number().integer().min(10).default(500),
   DEFAULT_WORK_START_TIME: Joi.string().pattern(/^\d{2}:\d{2}$/).default('09:00'),
@@ -196,7 +196,7 @@ export const configuration = (): AppConfig => {
       from: value.SMTP_FROM || undefined,
     },
     uploads: {
-      maxFileSize: int(value.MAX_FILE_SIZE_BYTES, 5 * 1024 * 1024),
+      maxFileSize: int(value.MAX_FILE_SIZE_BYTES, 8 * 1024 * 1024),
     },
     attendance: {
       gpsEnabled: bool(value.GPS_ATTENDANCE_ENABLED, false),

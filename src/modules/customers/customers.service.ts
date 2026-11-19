@@ -510,21 +510,28 @@ export class CustomersService {
           orderBy: { nextServiceDate: 'asc' },
           select: { id: true, nextServiceDate: true, frequency: true, status: true },
         });
-        const workDone =
-          workOrder &&
-          ['COMPLETED', 'UNDER_REVIEW', 'APPROVED', 'CORRECTION_REQUIRED'].includes(workOrder.status);
+        // Customers see completion evidence only after a manager approves the
+        // service report. Field work can be physically finished while its
+        // report is still waiting for review or corrections.
+        const workDone = approvedReport !== null;
+        const customerWorkStatus = workDone || !workOrder ||
+          !['COMPLETED', 'UNDER_REVIEW', 'CORRECTION_REQUIRED', 'APPROVED'].includes(workOrder.status)
+          ? workOrder?.status
+          : 'IN_PROGRESS';
         return {
-          booking,
+          booking: !workDone && booking.status === 'COMPLETED'
+            ? { ...booking, status: 'IN_PROGRESS' }
+            : booking,
           workOrder: workOrder
             ? {
                 id: workOrder.id,
                 workOrderNumber: workOrder.workOrderNumber,
-                status: workOrder.status,
+                status: customerWorkStatus,
                 priority: workOrder.priority,
                 scheduledDate: workOrder.scheduledDate,
                 scheduledStartTime: workOrder.scheduledStartTime,
                 scheduledEndTime: workOrder.scheduledEndTime,
-                completedAt: workOrder.completedAt,
+                completedAt: workDone ? workOrder.completedAt : null,
                 technicians: workOrder.assignments.map((a) => a.employee.user),
                 photos: workDone
                   ? [...workOrder.photos, ...(approvedReport?.photos ?? [])]

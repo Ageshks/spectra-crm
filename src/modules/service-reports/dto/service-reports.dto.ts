@@ -75,6 +75,39 @@ export class UpdateServiceReportDto {
   completionRemarks?: string;
 }
 
+/** Reviewer edits are allowed only while a submitted report is under review. */
+export class ReviewServiceReportUpdateDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  workSummary?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  workPerformed?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  issuesFound?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  materialsUsed?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  recommendations?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  completionRemarks?: string;
+}
+
 export class ReportDecisionDto {
   @IsOptional()
   @IsString()
