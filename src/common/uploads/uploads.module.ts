@@ -1,7 +1,7 @@
 import { BadRequestException, Global, Injectable, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { AppConfig } from '../../config/configuration';
 import { ALLOWED_IMAGE_EXTENSIONS, ALLOWED_IMAGE_MIME_TYPES } from '../constants';
@@ -91,6 +91,26 @@ export class LocalWorkPhotoStorageService {
       await unlink(join(this.storageDirectory, fileName));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+
+  async read(imageUrl: string): Promise<Buffer | null> {
+    let pathname = imageUrl;
+    if (/^https?:\/\//i.test(imageUrl)) {
+      try {
+        pathname = new URL(imageUrl).pathname;
+      } catch {
+        return null;
+      }
+    }
+    if (!pathname.startsWith(WORK_PHOTO_URL_PREFIX)) return null;
+    const fileName = decodeURIComponent(pathname.slice(WORK_PHOTO_URL_PREFIX.length));
+    if (!fileName || basename(fileName) !== fileName) return null;
+    try {
+      return await readFile(join(this.storageDirectory, fileName));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
     }
   }
 }

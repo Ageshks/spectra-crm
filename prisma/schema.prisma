@@ -915,9 +915,19 @@ model WorkPhoto {
   workOrder     WorkOrder      @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
   serviceReport ServiceReport? @relation(fields: [serviceReportId], references: [id], onDelete: SetNull)
   uploadedBy    User?          @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  content       WorkPhotoContent?
 
   @@index([workOrderId])
   @@index([serviceReportId])
+}
+
+model WorkPhotoContent {
+  workPhotoId String   @id @db.Uuid
+  imageData   Bytes    @db.ByteA
+  mimeType    String   @default("image/jpeg")
+  createdAt   DateTime @default(now())
+
+  workPhoto WorkPhoto @relation(fields: [workPhotoId], references: [id], onDelete: Cascade)
 }
 
 // ---------------------------------------------------------------

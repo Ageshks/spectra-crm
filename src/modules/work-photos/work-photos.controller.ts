@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Res, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
+import type { Response } from 'express';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthUser } from '../../common/types/auth.types';
@@ -41,6 +43,18 @@ export class WorkPhotosController {
   @ResponseMessage('Photos retrieved')
   list(@CurrentUser() user: AuthUser, @Query() query: ListWorkPhotosDto) {
     return this.photos.list(query, user);
+  }
+
+  @Get(':id/image')
+  @Public()
+  @ApiOperation({ summary: 'Read a stored work photo image' })
+  async image(@Param('id', ParseUUIDPipe) id: string, @Res() response: Response) {
+    const image = await this.photos.getImage(id);
+    response
+      .status(200)
+      .set('Content-Type', image.mimeType)
+      .set('Cache-Control', 'private, max-age=300')
+      .send(Buffer.from(image.imageData));
   }
 
   @Delete(':id')

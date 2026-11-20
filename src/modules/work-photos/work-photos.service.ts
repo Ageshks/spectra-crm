@@ -4,8 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, Role } from '@prisma/client';
+import sharp from 'sharp';
 import { AuditService } from '../../common/audit/audit.module';
 import { AppConfig } from '../../config/configuration';
 import { normalizePagination, paginated, PaginatedResult, safeOrderBy } from '../../common/utils/pagination.util';
@@ -97,17 +99,29 @@ export class WorkPhotosService {
         if (!owned) throw new ForbiddenException('This report does not belong to you');
       }
     }
-    const uploaded = await this.storage.save(file);
-    const photo = await this.prisma.workPhoto.create({
-      data: {
-        workOrderId: dto.workOrderId,
-        serviceReportId,
-        uploadedById: actor.id,
-        imageUrl: uploaded.imageUrl,
-        thumbnailUrl: uploaded.thumbnailUrl,
-        caption: dto.caption,
-      },
-      include: photoInclude,
+    const { data: imageData } = await sharp(file.buffer)
+      .rotate()
+      .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer({ resolveWithObject: true });
+    const id = randomUUID();
+    const imageUrl = `/api/v1/work-photos/${id}/image`;
+    const photo = await this.prisma.$transaction(async (tx) => {
+      await tx.workPhoto.create({
+        data: {
+          id,
+          workOrderId: dto.workOrderId,
+          serviceReportId,
+          uploadedById: actor.id,
+          imageUrl,
+          thumbnailUrl: imageUrl,
+          caption: dto.caption,
+        },
+      });
+      await tx.workPhotoContent.create({
+        data: { workPhotoId: id, imageData, mimeType: 'image/jpeg' },
+      });
+      return tx.workPhoto.findUniqueOrThrow({ where: { id }, include: photoInclude });
     });
     await this.audit.log({
       action: 'UPLOAD_WORK_PHOTO',
@@ -167,7 +181,11 @@ export class WorkPhotosService {
       }),
       this.prisma.workPhoto.count({ where }),
     ]);
-    return paginated(items, page, limit, total);
+    const withImageRoutes = items.map((item) => {
+      const imageUrl = `/api/v1/work-photos/${item.id}/image`;
+      return { ...item, imageUrl, thumbnailUrl: imageUrl };
+    });
+    return paginated(withImageRoutes, page, limit, total);
   }
 
   async remove(id: string, actor: AuthUser): Promise<{ removed: boolean }> {
@@ -188,5 +206,32 @@ export class WorkPhotosService {
       oldValues: { workOrderId: photo.workOrderId },
     });
     return { removed: true };
+  }
+
+  async getImage(id: string): Promise<{ imageData: Uint8Array; mimeType: string }> {
+    const photo = await this.prisma.workPhoto.findUnique({
+      where: { id },
+      select: {
+        imageUrl: true,
+        content: { select: { imageData: true, mimeType: true } },
+      },
+    });
+    if (!photo) throw new NotFoundException('Photo not found');
+    if (photo.content) return photo.content;
+
+    // Keep photos uploaded before database storage was enabled readable.
+    const legacyImage = await this.storage.read(photo.imageUrl);
+    if (!legacyImage) throw new NotFoundException('Photo image not found');
+    await this.prisma.workPhotoContent.upsert({
+      where: { workPhotoId: id },
+      create: { workPhotoId: id, imageData: Uint8Array.from(legacyImage), mimeType: 'image/jpeg' },
+      update: {},
+    });
+    const imageUrl = `/api/v1/work-photos/${id}/image`;
+    await this.prisma.workPhoto.update({
+      where: { id },
+      data: { imageUrl, thumbnailUrl: imageUrl },
+    });
+    return { imageData: legacyImage, mimeType: 'image/jpeg' };
   }
 }
