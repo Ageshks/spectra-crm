@@ -136,10 +136,10 @@ describe('OvertimeService shift length', () => {
     }
   });
 
-  it('sends one overtime reminder fifteen minutes before the standard shift threshold', async () => {
+  it('sends one overtime reminder ten minutes before the standard shift threshold', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-11-12T12:00:00.000Z'));
-    const checkInTime = new Date('2026-11-12T03:44:30.000Z');
+    const checkInTime = new Date('2026-11-12T03:39:30.000Z');
     const { service, prisma, notifications } = setup();
     prisma.attendance.findMany.mockResolvedValue([{
       id: 'attendance-1',
@@ -154,8 +154,8 @@ describe('OvertimeService shift length', () => {
       expect(prisma.attendance.findMany).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({
           checkInTime: {
-            gt: new Date('2026-11-12T03:44:00.000Z'),
-            lte: new Date('2026-11-12T03:45:00.000Z'),
+            gt: new Date('2026-11-12T03:39:00.000Z'),
+            lte: new Date('2026-11-12T03:40:00.000Z'),
           },
         }),
       }));

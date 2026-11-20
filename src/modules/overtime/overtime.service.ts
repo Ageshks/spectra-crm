@@ -46,6 +46,7 @@ const overtimeInclude = {
 } satisfies Prisma.OvertimeInclude;
 
 const STANDARD_SHIFT_MINUTES = 8 * 60 + 30;
+const OVERTIME_REMINDER_LEAD_MINUTES = 10;
 type OvertimeOwner = { employeeId: string; managerId?: never } | { managerId: string; employeeId?: never };
 
 @Injectable()
@@ -199,10 +200,10 @@ export class OvertimeService {
     };
   }
 
-  /** Remind staff fifteen minutes before the standard shift threshold. */
-  @Cron('* * * * *', { name: 'overtime-fifteen-minute-reminder', timeZone: 'Asia/Kolkata' })
+  /** Remind staff ten minutes before the standard shift threshold. */
+  @Cron('* * * * *', { name: 'overtime-ten-minute-reminder', timeZone: 'Asia/Kolkata' })
   async remindBeforeOvertimeEligibility(): Promise<void> {
-    const reminderCutoff = new Date(Date.now() - (STANDARD_SHIFT_MINUTES - 15) * 60_000);
+    const reminderCutoff = new Date(Date.now() - (STANDARD_SHIFT_MINUTES - OVERTIME_REMINDER_LEAD_MINUTES) * 60_000);
     const previousMinuteCutoff = new Date(reminderCutoff.getTime() - 60_000);
     const attendances = await this.prisma.attendance.findMany({
       where: {
@@ -263,6 +264,7 @@ export class OvertimeService {
           userId,
           type: NotificationType.OVERTIME_REMINDER,
           referenceId: attendance.id,
+          message: { contains: '10 minutes' },
         },
         select: { id: true },
       });
@@ -271,7 +273,7 @@ export class OvertimeService {
       await this.notifications.notify({
         userId,
         title: 'Overtime application reminder',
-        message: 'Your 8 hours 30 minutes shift threshold is 15 minutes away. If work is still in progress at the threshold, you can submit an overtime request from your work profile.',
+        message: 'Your 8 hours 30 minutes shift ends in 10 minutes, including your break. Finish active work before the shift ends. If work will continue past the shift, open Overtime in your staff profile and submit an overtime request.',
         type: NotificationType.OVERTIME_REMINDER,
         referenceType: 'overtime_reminder',
         referenceId: attendance.id,
