@@ -4,6 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   BookingStatus,
   MaintenanceFrequency,
@@ -666,6 +668,10 @@ export class ServiceReportsService {
   }
 
   private buildReportPdf(inputLines: string[]): Buffer {
+    const sections = new Set([
+      'WORK SUMMARY', 'WORK PERFORMED', 'ISSUES FOUND', 'MATERIALS USED',
+      'RECOMMENDATIONS', 'COMPLETION REMARKS', 'ATTACHED PHOTOS', 'RECORDED LOCATIONS',
+    ]);
     const printableLines = inputLines.flatMap((input) => {
       const ascii = input.replace(/[^\x20-\x7E]/g, '?');
       const words = ascii.split(/\s+/).filter(Boolean);
@@ -673,7 +679,7 @@ export class ServiceReportsService {
       const wrapped: string[] = [];
       let line = '';
       for (const word of words) {
-        if (line && `${line} ${word}`.length > 88) {
+        if (line && `${line} ${word}`.length > 92) {
           wrapped.push(line);
           line = word;
         } else {
@@ -683,34 +689,92 @@ export class ServiceReportsService {
       if (line) wrapped.push(line);
       return wrapped;
     });
-    const linesPerPage = 44;
-    const pages = Array.from({ length: Math.max(1, Math.ceil(printableLines.length / linesPerPage)) }, (_, index) =>
-      printableLines.slice(index * linesPerPage, (index + 1) * linesPerPage));
+    const linesPerPage = 43;
+    const pages: string[][] = [];
+    let currentPage: string[] = [];
+    for (const line of printableLines) {
+      const isSection = sections.has(line);
+      const cost = isSection ? 2 : 1;
+      if (currentPage.length + cost > linesPerPage) {
+        pages.push(currentPage);
+        currentPage = [];
+      }
+      currentPage.push(line);
+    }
+    if (currentPage.length || !pages.length) pages.push(currentPage);
     const escape = (value: string) => value.replace(/[\\()]/g, '\\$&');
-    const objects: string[] = [
-      '<< /Type /Catalog /Pages 2 0 R >>',
-      `<< /Type /Pages /Kids [${pages.map((_, index) => `${4 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
-      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    const text = (value: string, x: number, y: number, size: number, bold = false, color = '0.16 0.22 0.20') =>
+      `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escape(value)}) Tj ET`;
+    const objects: Buffer[] = [
+      Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
+      Buffer.from(`<< /Type /Pages /Kids [${pages.map((_, index) => `${6 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`),
+      Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
+      Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'),
     ];
-    for (const page of pages) {
-      const commands = [
-        'BT', '/F1 10 Tf', '50 790 Td', '14 TL',
-        ...page.flatMap((line, index) => [index === 0 ? `(${escape(line)}) Tj` : 'T*', ...(index === 0 ? [] : [`(${escape(line)}) Tj`])]),
-        'ET',
-      ].join('\n');
-      objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objects.length + 2} 0 R >>`);
-      objects.push(`<< /Length ${Buffer.byteLength(commands, 'ascii')} >>\nstream\n${commands}\nendstream`);
-    }
-    let body = '%PDF-1.4\n';
+    const logo = readFileSync(join(__dirname, 'assets', 'specterra-logo.jpg'));
+    objects.push(Buffer.concat([
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width 500 /Height 244 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.length} >>\nstream\n`, 'ascii'),
+      logo,
+      Buffer.from('\nendstream', 'ascii'),
+    ]));
+
+    pages.forEach((page, pageIndex) => {
+      const commands: string[] = [];
+      commands.push('0.02 0.35 0.25 rg 0 827 612 15 re f');
+      if (pageIndex === 0) {
+        commands.push('q 132 0 0 64 42 750 cm /Logo Do Q');
+        commands.push(text('SERVICE REPORT', 365, 790, 18, true, '0.02 0.35 0.25'));
+        commands.push(text('FIELD WORK COMPLETION', 366, 772, 8, true, '0.40 0.49 0.18'));
+        commands.push(`0.82 0.87 0.84 RG 42 738 m 570 738 l S`);
+      } else {
+        commands.push(text('SPECTERRA  |  SERVICE REPORT', 42, 802, 10, true, '0.02 0.35 0.25'));
+        commands.push(`0.82 0.87 0.84 RG 42 790 m 570 790 l S`);
+      }
+      let y = pageIndex === 0 ? 720 : 770;
+      for (const line of page) {
+        if (!line) {
+          y -= 6;
+          continue;
+        }
+        if (sections.has(line)) {
+          commands.push('0.91 0.96 0.93 rg 42 ' + (y - 4) + ' 528 18 re f');
+          commands.push(text(line, 50, y + 1, 9, true, '0.02 0.35 0.25'));
+          y -= 22;
+        } else {
+          const heading = pageIndex === 0 && line.startsWith('SERVICE REPORT:');
+          commands.push(text(line, 48, y, heading ? 11 : 9, heading, heading ? '0.02 0.35 0.25' : '0.16 0.22 0.20'));
+          y -= heading ? 17 : 14;
+        }
+      }
+      commands.push(`0.82 0.87 0.84 RG 42 42 m 570 42 l S`);
+      commands.push(text('SPECTERRA  |  FIELD SERVICE RECORD', 42, 27, 8, false, '0.40 0.46 0.43'));
+      commands.push(text(`PAGE ${pageIndex + 1} OF ${pages.length}`, 500, 27, 8, true, '0.02 0.35 0.25'));
+      const stream = Buffer.from(commands.join('\n'), 'ascii');
+      const pageObjectId = 6 + pageIndex * 2;
+      const contentObjectId = pageObjectId + 1;
+      objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Logo 5 0 R >> >> /Contents ${contentObjectId} 0 R >>`, 'ascii'));
+      objects.push(Buffer.concat([
+        Buffer.from(`<< /Length ${stream.length} >>\nstream\n`, 'ascii'),
+        stream,
+        Buffer.from('\nendstream', 'ascii'),
+      ]));
+    });
+
+    const chunks: Buffer[] = [Buffer.from('%PDF-1.4\n', 'ascii')];
     const offsets = [0];
+    let bodyLength = chunks[0].length;
     for (let index = 0; index < objects.length; index++) {
-      offsets.push(Buffer.byteLength(body, 'ascii'));
-      body += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+      offsets.push(bodyLength);
+      const header = Buffer.from(`${index + 1} 0 obj\n`, 'ascii');
+      const footer = Buffer.from('\nendobj\n', 'ascii');
+      chunks.push(header, objects[index], footer);
+      bodyLength += header.length + objects[index].length + footer.length;
     }
-    const xref = Buffer.byteLength(body, 'ascii');
-    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-    for (const offset of offsets.slice(1)) body += `${String(offset).padStart(10, '0')} 00000 n \n`;
-    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-    return Buffer.from(body, 'ascii');
+    const xref = bodyLength;
+    let xrefText = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (const offset of offsets.slice(1)) xrefText += `${String(offset).padStart(10, '0')} 00000 n \n`;
+    xrefText += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    chunks.push(Buffer.from(xrefText, 'ascii'));
+    return Buffer.concat(chunks);
   }
 }
