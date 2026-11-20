@@ -165,6 +165,52 @@ export class ServiceReportsService {
     return report;
   }
 
+  async getPdf(id: string, actor: AuthUser): Promise<{ fileName: string; content: Buffer }> {
+    const report = await this.load(id);
+    this.assertAccess(report, actor);
+    const customerUser = report.workOrder.customer.user;
+    const customer = [customerUser?.firstName, customerUser?.lastName]
+      .filter(Boolean).join(' ');
+    const technician = [report.employee.user.firstName, report.employee.user.lastName]
+      .filter(Boolean).join(' ');
+    const location = report.workOrder.serviceLocation;
+    const lines = [
+      `SERVICE REPORT: ${report.reportNumber}`,
+      `Status: ${report.status}`,
+      `Work order: ${report.workOrder.workOrderNumber}`,
+      `Work order status: ${report.workOrder.status}`,
+      `Priority: ${report.workOrder.priority}`,
+      `Customer: ${customer || 'Not provided'}`,
+      `Technician: ${technician || 'Not provided'} (${report.employee.employeeNo})`,
+      `Service: ${report.workOrder.service.name}`,
+      `Location: ${[location?.locationName, location?.address, location?.city].filter(Boolean).join(', ') || 'Not provided'}`,
+      `Scheduled: ${report.workOrder.scheduledDate?.toISOString().slice(0, 10) ?? 'Not scheduled'} ${[report.workOrder.scheduledStartTime, report.workOrder.scheduledEndTime].filter(Boolean).join(' - ')}`,
+      `Work completed: ${report.workOrder.completedAt?.toISOString() ?? 'Not recorded'}`,
+      `Instructions: ${report.workOrder.instructions || '—'}`,
+      `Submitted: ${report.submittedAt?.toISOString() ?? 'Not submitted'}`,
+      `Last updated: ${report.updatedAt.toISOString()}`,
+      `Reviewed: ${report.reviewedAt?.toISOString() ?? 'Not reviewed'}`,
+      `Reviewed by: ${[report.reviewedBy?.firstName, report.reviewedBy?.lastName].filter(Boolean).join(' ') || 'Not reviewed'}`,
+      '',
+      'WORK SUMMARY', report.workSummary || '—',
+      '', 'WORK PERFORMED', report.workPerformed || '—',
+      '', 'ISSUES FOUND', report.issuesFound || '—',
+      '', 'MATERIALS USED', report.materialsUsed || '—',
+      '', 'RECOMMENDATIONS', report.recommendations || '—',
+      '', 'COMPLETION REMARKS', report.completionRemarks || '—',
+      '', 'ATTACHED PHOTOS',
+      ...(report.photos.length ? report.photos.map((photo, index) =>
+        `${index + 1}. ${photo.caption || 'Work photo'} - ${photo.imageUrl}`) : ['No photos attached']),
+      '', 'RECORDED LOCATIONS',
+      ...(report.locations.length ? report.locations.map((point, index) =>
+        `${index + 1}. ${point.latitude}, ${point.longitude} at ${(point.capturedAt ?? point.recordedAt).toISOString()}`) : ['No locations recorded']),
+    ];
+    return {
+      fileName: `${report.reportNumber || 'service-report'}.pdf`,
+      content: this.buildReportPdf(lines),
+    };
+  }
+
   async create(dto: CreateServiceReportDto, actor: AuthUser): Promise<unknown> {
     const employeeId = await this.requireAssignedEmployee(dto.workOrderId, actor);
     const workOrder = await this.prisma.workOrder.findUnique({ where: { id: dto.workOrderId } });
@@ -617,5 +663,54 @@ export class ServiceReportsService {
         break;
     }
     return d;
+  }
+
+  private buildReportPdf(inputLines: string[]): Buffer {
+    const printableLines = inputLines.flatMap((input) => {
+      const ascii = input.replace(/[^\x20-\x7E]/g, '?');
+      const words = ascii.split(/\s+/).filter(Boolean);
+      if (!words.length) return [''];
+      const wrapped: string[] = [];
+      let line = '';
+      for (const word of words) {
+        if (line && `${line} ${word}`.length > 88) {
+          wrapped.push(line);
+          line = word;
+        } else {
+          line = line ? `${line} ${word}` : word;
+        }
+      }
+      if (line) wrapped.push(line);
+      return wrapped;
+    });
+    const linesPerPage = 44;
+    const pages = Array.from({ length: Math.max(1, Math.ceil(printableLines.length / linesPerPage)) }, (_, index) =>
+      printableLines.slice(index * linesPerPage, (index + 1) * linesPerPage));
+    const escape = (value: string) => value.replace(/[\\()]/g, '\\$&');
+    const objects: string[] = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      `<< /Type /Pages /Kids [${pages.map((_, index) => `${4 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ];
+    for (const page of pages) {
+      const commands = [
+        'BT', '/F1 10 Tf', '50 790 Td', '14 TL',
+        ...page.flatMap((line, index) => [index === 0 ? `(${escape(line)}) Tj` : 'T*', ...(index === 0 ? [] : [`(${escape(line)}) Tj`])]),
+        'ET',
+      ].join('\n');
+      objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objects.length + 2} 0 R >>`);
+      objects.push(`<< /Length ${Buffer.byteLength(commands, 'ascii')} >>\nstream\n${commands}\nendstream`);
+    }
+    let body = '%PDF-1.4\n';
+    const offsets = [0];
+    for (let index = 0; index < objects.length; index++) {
+      offsets.push(Buffer.byteLength(body, 'ascii'));
+      body += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+    }
+    const xref = Buffer.byteLength(body, 'ascii');
+    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (const offset of offsets.slice(1)) body += `${String(offset).padStart(10, '0')} 00000 n \n`;
+    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    return Buffer.from(body, 'ascii');
   }
 }

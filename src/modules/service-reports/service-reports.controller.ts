@@ -8,7 +8,9 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -52,6 +54,23 @@ export class ServiceReportsController {
   @ResponseMessage('Service report retrieved')
   get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.reports.getById(id, user);
+  }
+
+  @Get(':id/pdf')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOperation({ summary: 'Download a service report PDF' })
+  async pdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() response: Response,
+  ) {
+    const pdf = await this.reports.getPdf(id, user);
+    response
+      .status(200)
+      .set('Content-Type', 'application/pdf')
+      .set('Content-Disposition', `attachment; filename="${pdf.fileName}"`)
+      .send(pdf.content);
   }
 
   @Patch(':id')
