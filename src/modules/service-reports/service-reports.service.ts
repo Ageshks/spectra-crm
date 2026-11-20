@@ -735,9 +735,10 @@ export class ServiceReportsService {
     const escape = (value: string) => value.replace(/[\\()]/g, '\\$&');
     const text = (value: string, x: number, y: number, size: number, bold = false, color = '0.16 0.22 0.20') =>
       `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escape(value)}) Tj ET`;
+    const contactLine = 'CHENGALAM SOUTH, KOTTAYAM | +91 9567700335, +91 8075364268 | project@specterra.in | www.specterra.in';
     const objects: Buffer[] = [
       Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
-      Buffer.from(`<< /Type /Pages /Kids [${Array.from({ length: totalPages }, (_, index) => `${6 + attachedPhotos.length + index * 2} 0 R`).join(' ')}] /Count ${totalPages} >>`),
+      Buffer.from(`<< /Type /Pages /Kids [${Array.from({ length: totalPages }, (_, index) => `${7 + attachedPhotos.length + index * 2} 0 R`).join(' ')}] /Count ${totalPages} >>`),
       Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
       Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'),
     ];
@@ -745,6 +746,12 @@ export class ServiceReportsService {
     objects.push(Buffer.concat([
       Buffer.from(`<< /Type /XObject /Subtype /Image /Width 500 /Height 244 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.length} >>\nstream\n`, 'ascii'),
       logo,
+      Buffer.from('\nendstream', 'ascii'),
+    ]));
+    const watermark = readFileSync(join(__dirname, 'assets', 'specterra-watermark.jpg'));
+    objects.push(Buffer.concat([
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width 500 /Height 244 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${watermark.length} >>\nstream\n`, 'ascii'),
+      watermark,
       Buffer.from('\nendstream', 'ascii'),
     ]));
     attachedPhotos.forEach((photo) => {
@@ -757,17 +764,13 @@ export class ServiceReportsService {
 
     pages.forEach((page, pageIndex) => {
       const commands: string[] = [];
-      commands.push('0.02 0.35 0.25 rg 0 827 612 15 re f');
-      if (pageIndex === 0) {
-        commands.push('q 132 0 0 64 42 750 cm /Logo Do Q');
-        commands.push(text('SERVICE REPORT', 365, 790, 18, true, '0.02 0.35 0.25'));
-        commands.push(text('FIELD WORK COMPLETION', 366, 772, 8, true, '0.40 0.49 0.18'));
-        commands.push(`0.82 0.87 0.84 RG 42 738 m 570 738 l S`);
-      } else {
-        commands.push(text('SPECTERRA  |  SERVICE REPORT', 42, 802, 10, true, '0.02 0.35 0.25'));
-        commands.push(`0.82 0.87 0.84 RG 42 790 m 570 790 l S`);
-      }
-      let y = pageIndex === 0 ? 720 : 770;
+      commands.push('0.12 0.12 0.12 RG 12 12 588 818 re S');
+      commands.push('q 300 0 0 146 156 325 cm /Watermark Do Q');
+      commands.push('q 100 0 0 48.8 256 757 cm /Logo Do Q');
+      commands.push(text('An ISO 9001:2015 (QMS) Certified Company', 181, 744, 12, true, '0.08 0.16 0.28'));
+      commands.push(text(contactLine, 84, 725, 8.4, true, '0.12 0.22 0.36'));
+      commands.push('0.72 0.76 0.80 RG 42 710 m 570 710 l S');
+      let y = 685;
       for (const line of page) {
         if (!line) {
           y -= 6;
@@ -783,13 +786,13 @@ export class ServiceReportsService {
           y -= heading ? 17 : 14;
         }
       }
-      commands.push(`0.82 0.87 0.84 RG 42 42 m 570 42 l S`);
-      commands.push(text('SPECTERRA  |  FIELD SERVICE RECORD', 42, 27, 8, false, '0.40 0.46 0.43'));
-      commands.push(text(`PAGE ${pageIndex + 1} OF ${totalPages}`, 500, 27, 8, true, '0.02 0.35 0.25'));
+      commands.push('0.72 0.76 0.80 RG 42 43 m 570 43 l S');
+      commands.push(text(contactLine, 84, 27, 8.4, true, '0.12 0.22 0.36'));
+      commands.push(text(`PAGE ${pageIndex + 1} OF ${totalPages}`, 510, 16, 6, true, '0.12 0.22 0.36'));
       const stream = Buffer.from(commands.join('\n'), 'ascii');
-      const pageObjectId = 6 + attachedPhotos.length + pageIndex * 2;
+      const pageObjectId = 7 + attachedPhotos.length + pageIndex * 2;
       const contentObjectId = pageObjectId + 1;
-      objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Logo 5 0 R >> >> /Contents ${contentObjectId} 0 R >>`, 'ascii'));
+      objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Logo 5 0 R /Watermark 6 0 R >> >> /Contents ${contentObjectId} 0 R >>`, 'ascii'));
       objects.push(Buffer.concat([
         Buffer.from(`<< /Length ${stream.length} >>\nstream\n`, 'ascii'),
         stream,
@@ -799,28 +802,32 @@ export class ServiceReportsService {
 
     attachedPhotos.forEach((photo, photoIndex) => {
       const pageIndex = pages.length + photoIndex;
-      const pageObjectId = 6 + attachedPhotos.length + pageIndex * 2;
+      const pageObjectId = 7 + attachedPhotos.length + pageIndex * 2;
       const contentObjectId = pageObjectId + 1;
-      const scale = Math.min(516 / photo.width, 610 / photo.height);
+      const scale = Math.min(516 / photo.width, 520 / photo.height);
       const width = Math.round(photo.width * scale);
       const height = Math.round(photo.height * scale);
       const x = Math.round((612 - width) / 2);
-      const y = 100 + Math.round((610 - height) / 2);
+      const y = 100 + Math.round((520 - height) / 2);
       const caption = photo.caption.replace(/[^\x20-\x7E]/g, '?').slice(0, 100);
       const commands = [
-        '0.02 0.35 0.25 rg 0 827 612 15 re f',
-        'q 112 0 0 55 42 760 cm /Logo Do Q',
-        text('ATTACHED FIELD PHOTO', 345, 790, 15, true, '0.02 0.35 0.25'),
-        text(caption, 48, 730, 10, true),
+        '0.12 0.12 0.12 RG 12 12 588 818 re S',
+        'q 300 0 0 146 156 325 cm /Watermark Do Q',
+        'q 100 0 0 48.8 256 757 cm /Logo Do Q',
+        text('An ISO 9001:2015 (QMS) Certified Company', 181, 744, 12, true, '0.08 0.16 0.28'),
+        text(contactLine, 84, 725, 8.4, true, '0.12 0.22 0.36'),
+        '0.72 0.76 0.80 RG 42 710 m 570 710 l S',
+        text('ATTACHED FIELD PHOTO', 42, 682, 13, true, '0.08 0.16 0.28'),
+        text(caption, 48, 656, 10, true),
         `0.88 0.91 0.89 RG ${x - 1} ${y - 1} ${width + 2} ${height + 2} re S`,
         `q ${width} 0 0 ${height} ${x} ${y} cm /Photo Do Q`,
-        '0.82 0.87 0.84 RG 42 42 m 570 42 l S',
-        text('SPECTERRA  |  FIELD SERVICE RECORD', 42, 27, 8, false, '0.40 0.46 0.43'),
-        text(`PAGE ${pageIndex + 1} OF ${totalPages}`, 500, 27, 8, true, '0.02 0.35 0.25'),
+        '0.72 0.76 0.80 RG 42 43 m 570 43 l S',
+        text(contactLine, 84, 27, 8.4, true, '0.12 0.22 0.36'),
+        text(`PAGE ${pageIndex + 1} OF ${totalPages}`, 510, 16, 6, true, '0.12 0.22 0.36'),
       ].join('\n');
       const stream = Buffer.from(commands, 'ascii');
-      const imageObjectId = 6 + photoIndex;
-      objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Logo 5 0 R /Photo ${imageObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`, 'ascii'));
+      const imageObjectId = 7 + photoIndex;
+      objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Logo 5 0 R /Watermark 6 0 R /Photo ${imageObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`, 'ascii'));
       objects.push(Buffer.concat([
         Buffer.from(`<< /Length ${stream.length} >>\nstream\n`, 'ascii'),
         stream,
