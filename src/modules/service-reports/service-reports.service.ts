@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import sharp from 'sharp';
 import {
   BookingStatus,
   MaintenanceFrequency,
@@ -29,6 +30,7 @@ import {
 import { SequenceService } from '../../common/sequence/sequence.module';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthUser } from '../../common/types/auth.types';
+import { LocalWorkPhotoStorageService } from '../../common/uploads/uploads.module';
 import {
   CreateServiceReportDto,
   CreateReportLocationDto,
@@ -70,6 +72,7 @@ export class ServiceReportsService {
     private readonly notifications: NotificationsService,
     private readonly bookings: BookingsService,
     private readonly statusService: WorkOrderStatusService,
+    private readonly photoStorage: LocalWorkPhotoStorageService,
   ) {}
 
   private async load(id: string): Promise<Prisma.ServiceReportGetPayload<{ include: typeof reportInclude }>> {
@@ -170,6 +173,29 @@ export class ServiceReportsService {
   async getPdf(id: string, actor: AuthUser): Promise<{ fileName: string; content: Buffer }> {
     const report = await this.load(id);
     this.assertAccess(report, actor);
+    const photoRows = report.photos.length
+      ? await this.prisma.workPhoto.findMany({
+          where: { id: { in: report.photos.map((photo) => photo.id) } },
+          select: {
+            id: true,
+            imageUrl: true,
+            content: { select: { imageData: true } },
+          },
+        })
+      : [];
+    const photos = await Promise.all(report.photos.map(async (photo) => {
+      const stored = photoRows.find((row) => row.id === photo.id);
+      const source = stored?.content?.imageData
+        ? Buffer.from(stored.content.imageData)
+        : stored ? await this.photoStorage.read(stored.imageUrl) : null;
+      if (!source) return null;
+      const { data, info } = await sharp(source)
+        .rotate()
+        .resize(1400, 1400, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 76, mozjpeg: true })
+        .toBuffer({ resolveWithObject: true });
+      return { caption: photo.caption || 'Work photo', imageData: data, width: info.width, height: info.height };
+    }));
     const customerUser = report.workOrder.customer.user;
     const customer = [customerUser?.firstName, customerUser?.lastName]
       .filter(Boolean).join(' ');
@@ -202,14 +228,14 @@ export class ServiceReportsService {
       '', 'COMPLETION REMARKS', report.completionRemarks || '—',
       '', 'ATTACHED PHOTOS',
       ...(report.photos.length ? report.photos.map((photo, index) =>
-        `${index + 1}. ${photo.caption || 'Work photo'} - ${photo.imageUrl}`) : ['No photos attached']),
+        `${index + 1}. ${photo.caption || 'Work photo'}`) : ['No photos attached']),
       '', 'RECORDED LOCATIONS',
       ...(report.locations.length ? report.locations.map((point, index) =>
         `${index + 1}. ${point.latitude}, ${point.longitude} at ${(point.capturedAt ?? point.recordedAt).toISOString()}`) : ['No locations recorded']),
     ];
     return {
       fileName: `${report.reportNumber || 'service-report'}.pdf`,
-      content: this.buildReportPdf(lines),
+      content: this.buildReportPdf(lines, photos.filter((photo): photo is NonNullable<typeof photo> => photo !== null)),
     };
   }
 
@@ -667,7 +693,10 @@ export class ServiceReportsService {
     return d;
   }
 
-  private buildReportPdf(inputLines: string[]): Buffer {
+  private buildReportPdf(
+    inputLines: string[],
+    attachedPhotos: Array<{ caption: string; imageData: Buffer; width: number; height: number }>,
+  ): Buffer {
     const sections = new Set([
       'WORK SUMMARY', 'WORK PERFORMED', 'ISSUES FOUND', 'MATERIALS USED',
       'RECOMMENDATIONS', 'COMPLETION REMARKS', 'ATTACHED PHOTOS', 'RECORDED LOCATIONS',
@@ -702,12 +731,13 @@ export class ServiceReportsService {
       currentPage.push(line);
     }
     if (currentPage.length || !pages.length) pages.push(currentPage);
+    const totalPages = pages.length + attachedPhotos.length;
     const escape = (value: string) => value.replace(/[\\()]/g, '\\$&');
     const text = (value: string, x: number, y: number, size: number, bold = false, color = '0.16 0.22 0.20') =>
       `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escape(value)}) Tj ET`;
     const objects: Buffer[] = [
       Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
-      Buffer.from(`<< /Type /Pages /Kids [${pages.map((_, index) => `${6 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`),
+      Buffer.from(`<< /Type /Pages /Kids [${Array.from({ length: totalPages }, (_, index) => `${6 + attachedPhotos.length + index * 2} 0 R`).join(' ')}] /Count ${totalPages} >>`),
       Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
       Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'),
     ];
@@ -717,6 +747,13 @@ export class ServiceReportsService {
       logo,
       Buffer.from('\nendstream', 'ascii'),
     ]));
+    attachedPhotos.forEach((photo) => {
+      objects.push(Buffer.concat([
+        Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${photo.width} /Height ${photo.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${photo.imageData.length} >>\nstream\n`, 'ascii'),
+        photo.imageData,
+        Buffer.from('\nendstream', 'ascii'),
+      ]));
+    });
 
     pages.forEach((page, pageIndex) => {
       const commands: string[] = [];
@@ -748,11 +785,42 @@ export class ServiceReportsService {
       }
       commands.push(`0.82 0.87 0.84 RG 42 42 m 570 42 l S`);
       commands.push(text('SPECTERRA  |  FIELD SERVICE RECORD', 42, 27, 8, false, '0.40 0.46 0.43'));
-      commands.push(text(`PAGE ${pageIndex + 1} OF ${pages.length}`, 500, 27, 8, true, '0.02 0.35 0.25'));
+      commands.push(text(`PAGE ${pageIndex + 1} OF ${totalPages}`, 500, 27, 8, true, '0.02 0.35 0.25'));
       const stream = Buffer.from(commands.join('\n'), 'ascii');
-      const pageObjectId = 6 + pageIndex * 2;
+      const pageObjectId = 6 + attachedPhotos.length + pageIndex * 2;
       const contentObjectId = pageObjectId + 1;
       objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Logo 5 0 R >> >> /Contents ${contentObjectId} 0 R >>`, 'ascii'));
+      objects.push(Buffer.concat([
+        Buffer.from(`<< /Length ${stream.length} >>\nstream\n`, 'ascii'),
+        stream,
+        Buffer.from('\nendstream', 'ascii'),
+      ]));
+    });
+
+    attachedPhotos.forEach((photo, photoIndex) => {
+      const pageIndex = pages.length + photoIndex;
+      const pageObjectId = 6 + attachedPhotos.length + pageIndex * 2;
+      const contentObjectId = pageObjectId + 1;
+      const scale = Math.min(516 / photo.width, 610 / photo.height);
+      const width = Math.round(photo.width * scale);
+      const height = Math.round(photo.height * scale);
+      const x = Math.round((612 - width) / 2);
+      const y = 100 + Math.round((610 - height) / 2);
+      const caption = photo.caption.replace(/[^\x20-\x7E]/g, '?').slice(0, 100);
+      const commands = [
+        '0.02 0.35 0.25 rg 0 827 612 15 re f',
+        'q 112 0 0 55 42 760 cm /Logo Do Q',
+        text('ATTACHED FIELD PHOTO', 345, 790, 15, true, '0.02 0.35 0.25'),
+        text(caption, 48, 730, 10, true),
+        `0.88 0.91 0.89 RG ${x - 1} ${y - 1} ${width + 2} ${height + 2} re S`,
+        `q ${width} 0 0 ${height} ${x} ${y} cm /Photo Do Q`,
+        '0.82 0.87 0.84 RG 42 42 m 570 42 l S',
+        text('SPECTERRA  |  FIELD SERVICE RECORD', 42, 27, 8, false, '0.40 0.46 0.43'),
+        text(`PAGE ${pageIndex + 1} OF ${totalPages}`, 500, 27, 8, true, '0.02 0.35 0.25'),
+      ].join('\n');
+      const stream = Buffer.from(commands, 'ascii');
+      const imageObjectId = 6 + photoIndex;
+      objects.push(Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Logo 5 0 R /Photo ${imageObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`, 'ascii'));
       objects.push(Buffer.concat([
         Buffer.from(`<< /Length ${stream.length} >>\nstream\n`, 'ascii'),
         stream,
