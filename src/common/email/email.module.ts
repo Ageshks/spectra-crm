@@ -33,9 +33,9 @@ export class EmailService {
     await this.transport.sendMail({
       from: this.from,
       to: input.email,
-      subject: 'Your Spectra password reset code',
-      text: `Hello ${input.firstName},\n\nYour Spectra password reset code is ${input.otp}. It expires in ${input.expiresMinutes} minutes.\n\nIf you did not request a password reset, you can ignore this email.`,
-      html: `<p>Hello ${this.escapeHtml(input.firstName)},</p><p>Your Spectra password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${input.otp}</p><p>This code expires in ${input.expiresMinutes} minutes.</p><p>If you did not request a password reset, you can ignore this email.</p>`,
+      subject: 'Your Specterra password reset code',
+      text: `Hello ${input.firstName},\n\nYour Specterra password reset code is ${input.otp}. It expires in ${input.expiresMinutes} minutes.\n\nIf you did not request a password reset, you can ignore this email.`,
+      html: `<p>Hello ${this.escapeHtml(input.firstName)},</p><p>Your Specterra password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${input.otp}</p><p>This code expires in ${input.expiresMinutes} minutes.</p><p>If you did not request a password reset, you can ignore this email.</p>`,
     });
   }
 

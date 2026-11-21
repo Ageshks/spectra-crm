@@ -93,7 +93,7 @@ const envSchema = Joi.object({
   SMTP_SECURE: Joi.string().valid('true', 'false', '1', '0').default('false'),
   SMTP_USER: Joi.string().allow('').default(''),
   SMTP_PASSWORD: Joi.string().allow('').default(''),
-  SMTP_FROM: Joi.string().allow('').default(''),
+  SMTP_FROM: Joi.string().allow('').default('Specterra Accounts <accounts@specterra.in>'),
   MAX_FILE_SIZE_BYTES: Joi.number().integer().min(1024).max(25 * 1024 * 1024).default(8 * 1024 * 1024),
   GPS_ATTENDANCE_ENABLED: Joi.string().valid('true', 'false').default('false'),
   GPS_ATTENDANCE_RADIUS_METERS: Joi.number().integer().min(10).default(500),
@@ -193,7 +193,7 @@ export const configuration = (): AppConfig => {
       secure: bool(value.SMTP_SECURE, false),
       user: value.SMTP_USER || undefined,
       password: value.SMTP_PASSWORD || undefined,
-      from: value.SMTP_FROM || undefined,
+      from: value.SMTP_FROM || 'Specterra Accounts <accounts@specterra.in>',
     },
     uploads: {
       maxFileSize: int(value.MAX_FILE_SIZE_BYTES, 8 * 1024 * 1024),

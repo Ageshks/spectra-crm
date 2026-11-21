@@ -256,6 +256,9 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto): Promise<void> {
+    if (!this.email.isConfigured()) {
+      throw new ServiceUnavailableException('Password reset emails are temporarily unavailable. Please try again later.');
+    }
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
     });
