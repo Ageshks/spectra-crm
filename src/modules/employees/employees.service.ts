@@ -47,7 +47,6 @@ export class EmployeesService {
     const { skip, take, page, limit, sortBy, sortOrder, search } = normalizePagination(query);
     const where: Prisma.EmployeeWhereInput = {
       companyId: actor.role === Role.SUPER_ADMIN ? undefined : actor.companyId ?? '__none__',
-      ...(actor.role === Role.MANAGER ? { assignments: { some: { workOrder: { managerId: actor.managerId ?? '__none__' } } } } : {}),
       ...(query.designation ? { designation: { equals: query.designation, mode: 'insensitive' } } : {}),
       ...(search
         ? {

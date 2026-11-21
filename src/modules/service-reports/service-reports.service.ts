@@ -95,7 +95,7 @@ export class ServiceReportsService {
         throw new ForbiddenException('Only approved reports are visible to customers');
       }
     }
-    if (actor.role === Role.MANAGER && report.workOrder.managerId !== actor.managerId) {
+    if (actor.role === Role.MANAGER && report.workOrder.managerId && report.workOrder.managerId !== actor.managerId) {
       throw new ForbiddenException('You are not authorized to access this report');
     }
     if (actor.role !== Role.SUPER_ADMIN && report.workOrder.companyId !== actor.companyId) {
@@ -131,7 +131,7 @@ export class ServiceReportsService {
       and.push({ employee: { userId: actor.id } });
     }
     if (actor.role === Role.MANAGER) {
-      and.push({ workOrder: { managerId: actor.managerId ?? '__none__' } });
+      and.push({ workOrder: { OR: [{ managerId: actor.managerId ?? '__none__' }, { managerId: null }] } });
     }
     if (actor.role !== Role.SUPER_ADMIN) and.push({ workOrder: { companyId: actor.companyId ?? '__none__' } });
     if (actor.role === Role.CUSTOMER) {

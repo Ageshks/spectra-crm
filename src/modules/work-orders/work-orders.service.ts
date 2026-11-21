@@ -101,7 +101,7 @@ export class WorkOrdersService {
         throw new ForbiddenException('You are not assigned to this work order');
       }
     }
-    if (actor.role === Role.MANAGER && workOrder.managerId !== actor.managerId) {
+    if (actor.role === Role.MANAGER && workOrder.managerId && workOrder.managerId !== actor.managerId) {
       throw new ForbiddenException('You are not authorized to access this work order');
     }
     return workOrder;
@@ -269,7 +269,7 @@ export class WorkOrdersService {
       and.push({ assignments: { some: { employee: { userId: actor.id } } } });
     }
     if (actor.role === Role.MANAGER) {
-      and.push({ managerId: actor.managerId ?? '__none__' });
+      and.push({ OR: [{ managerId: actor.managerId ?? '__none__' }, { managerId: null }] });
     }
 
     const where: Prisma.WorkOrderWhereInput = {
