@@ -189,11 +189,29 @@ export class WorkPhotosService {
   }
 
   async remove(id: string, actor: AuthUser): Promise<{ removed: boolean }> {
-    if (actor.role !== Role.ADMIN && actor.role !== Role.SUPER_ADMIN) {
-      throw new ForbiddenException('Only admins can delete work photos');
+    if (actor.role !== Role.ADMIN && actor.role !== Role.SUPER_ADMIN && actor.role !== Role.EMPLOYEE) {
+      throw new ForbiddenException('You are not allowed to delete work photos');
     }
-    const photo = await this.prisma.workPhoto.findUnique({ where: { id } });
+    const photo = await this.prisma.workPhoto.findUnique({
+      where: { id },
+      include: {
+        serviceReport: {
+          select: {
+            status: true,
+            employee: { select: { userId: true } },
+          },
+        },
+      },
+    });
     if (!photo) throw new NotFoundException('Photo not found');
+    if (actor.role === Role.EMPLOYEE) {
+      if (!photo.serviceReport || photo.serviceReport.employee.userId !== actor.id) {
+        throw new ForbiddenException('You can only remove photos from your own service report');
+      }
+      if (photo.serviceReport.status !== 'DRAFT' && photo.serviceReport.status !== 'CORRECTION_REQUIRED') {
+        throw new ForbiddenException('Photos can only be changed in a draft or correction-required report');
+      }
+    }
     await this.assertAccess(photo.workOrderId, actor);
     await this.prisma.workPhoto.delete({ where: { id } });
     await this.storage.delete(photo.imageUrl);

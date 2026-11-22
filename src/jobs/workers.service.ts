@@ -95,9 +95,28 @@ export class WorkersService implements OnModuleInit, OnModuleDestroy {
 
   private async handleNotification(job: Job): Promise<void> {
     if (job.name !== JOB_NAMES.SEND_PUSH) return;
-    const data = job.data as { userId?: string; title?: string; message?: string };
+    const data = job.data as {
+      notificationId?: string;
+      userId?: string;
+      title?: string;
+      message?: string;
+      type?: string;
+      referenceType?: string;
+      referenceId?: string;
+    };
     if (!data?.userId || !data?.title || !data?.message) return;
-    await this.fcm.sendToUser(data.userId, { title: data.title, body: data.message });
+    await this.fcm.sendToUser(data.userId, {
+      title: data.title,
+      body: data.message,
+      data: Object.fromEntries(
+        Object.entries({
+          notificationId: data.notificationId,
+          type: data.type,
+          referenceType: data.referenceType,
+          referenceId: data.referenceId,
+        }).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+      ),
+    });
   }
 
   private async handleMaintenance(job: Job): Promise<void> {

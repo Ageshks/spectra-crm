@@ -53,6 +53,7 @@ export class QueueService implements OnModuleDestroy {
     userId: string;
     title: string;
     message: string;
+    type?: string;
     referenceId?: string;
     referenceType?: string;
   }): Promise<void> {

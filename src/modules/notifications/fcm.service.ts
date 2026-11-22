@@ -14,6 +14,7 @@ export class FcmService {
   private readonly logger = new Logger(FcmService.name);
   private app: import('firebase-admin/app').App | null = null;
   private initFailed = false;
+  private readonly initialization: Promise<void>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -27,8 +28,9 @@ export class FcmService {
         privateKey: config.get<string>('FIREBASE_PRIVATE_KEY') || undefined,
       } satisfies AppConfig['firebase']);
     if (firebase?.projectId && firebase.clientEmail && firebase.privateKey) {
-      void this.initialise(firebase);
+      this.initialization = this.initialise(firebase);
     } else {
+      this.initialization = Promise.resolve();
       this.logger.warn('Firebase is not configured — push delivery disabled');
     }
   }
@@ -61,6 +63,7 @@ export class FcmService {
     userId: string,
     payload: { title: string; body: string; data?: Record<string, string> },
   ): Promise<number> {
+    await this.initialization;
     if (!this.app || this.initFailed) return 0;
     const tokens = await this.prisma.deviceToken.findMany({
       where: { userId, isActive: true },
@@ -74,6 +77,17 @@ export class FcmService {
         tokens: tokens.map((t) => t.token),
         notification: { title: payload.title, body: payload.body },
         data: payload.data,
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'general_notifications',
+            sound: 'default',
+          },
+        },
+        apns: {
+          headers: { 'apns-priority': '10' },
+          payload: { aps: { sound: 'default' } },
+        },
       });
 
       const invalidIndices = response.responses

@@ -43,6 +43,7 @@ export class NotificationsService {
       userId: input.userId,
       title: input.title,
       message: input.message,
+      type: input.type ?? NotificationType.GENERAL,
       referenceType: input.referenceType,
       referenceId: input.referenceId,
     });

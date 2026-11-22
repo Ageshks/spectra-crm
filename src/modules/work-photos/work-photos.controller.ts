@@ -58,9 +58,9 @@ export class WorkPhotosController {
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.EMPLOYEE)
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOperation({ summary: 'Delete a work photo' })
+  @ApiOperation({ summary: 'Delete an admin-managed photo or an employee-owned draft/correction report photo' })
   @ResponseMessage('Photo deleted')
   remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.photos.remove(id, user);
