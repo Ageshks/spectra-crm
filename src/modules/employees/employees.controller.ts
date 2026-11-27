@@ -46,6 +46,14 @@ export class EmployeesController {
     return this.employees.list(query, user);
   }
 
+  @Get('assignment-targets')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'List active field technicians and temporary staff for work assignment' })
+  @ResponseMessage('Assignment targets retrieved')
+  assignmentTargets(@CurrentUser() user: AuthUser) {
+    return this.employees.listAssignmentTargets(user);
+  }
+
   @Get('transfer-targets')
   @Roles(Role.EMPLOYEE)
   @ApiOperation({ summary: 'List eligible technicians for an employee work-transfer request' })

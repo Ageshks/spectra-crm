@@ -73,6 +73,40 @@ export class EmployeesService {
     return paginated(items, page, limit, total);
   }
 
+  async listAssignmentTargets(actor: AuthUser): Promise<unknown[]> {
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        companyId: actor.role === Role.SUPER_ADMIN ? undefined : actor.companyId ?? '__none__',
+        user: { isActive: true },
+        OR: [
+          { employeeNo: { startsWith: 'SGPLTEMP' } },
+          { designationRecord: { is: { isActive: true, canUseFieldApp: true } } },
+          { designation: { equals: 'Temp Staff', mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        employeeNo: true,
+        designation: true,
+        designationRecord: { select: { name: true } },
+        user: { select: { firstName: true, lastName: true, phone: true } },
+      },
+      orderBy: [{ user: { firstName: 'asc' } }, { user: { lastName: 'asc' } }],
+    });
+
+    return employees.map((employee) => ({
+      id: employee.id,
+      employeeId: employee.id,
+      employeeNo: employee.employeeNo,
+      firstName: employee.user.firstName,
+      lastName: employee.user.lastName,
+      fullName: `${employee.user.firstName} ${employee.user.lastName}`.trim(),
+      phone: employee.user.phone,
+      designation: employee.designationRecord?.name ?? employee.designation,
+      isTemporary: employee.employeeNo?.startsWith('SGPLTEMP') ?? false,
+    }));
+  }
+
   async listTransferTargets(actor: AuthUser): Promise<unknown[]> {
     if (actor.role !== Role.EMPLOYEE || !actor.employeeId) {
       throw new ForbiddenException('An employee profile is required to list transfer targets');
